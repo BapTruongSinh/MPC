@@ -115,7 +115,7 @@ export function buildAmpcError(
     const reason = describeReason(recommendation.reason);
     return `Lỗi AMPC: ${status} - ${reason}`;
   }
-  if (scheduler?.last_error) {
+  if (scheduler?.last_error && scheduler.last_status !== "safe") {
     const status = describeSafetyStatus(scheduler.last_status);
     const reason = describeReason(scheduler.last_error);
     return `Lỗi AMPC: ${status} - ${reason}`;
