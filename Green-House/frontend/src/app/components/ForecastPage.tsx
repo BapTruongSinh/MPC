@@ -124,7 +124,7 @@ export function buildAmpcError(
 }
 
 export function buildForecastChartData(data: ForecastResponse | null): ChartRow[] {
-  const rows = (data?.history ?? []).map((item) => ({
+  const rows: ChartRow[] = (data?.history ?? []).map((item) => ({
     label: timeLabel(item.recorded_at),
     soilActual: item.soil_moisture,
     soilForecast: null,
