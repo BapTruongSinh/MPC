@@ -281,4 +281,8 @@ def _fao56_details(fao56: Fao56Trajectory) -> dict[str, object]:
         "etc_adj": fao56.etc_adjusted_mm[0],
         "irrigation_depth_mm": fao56.irrigation_depth_mm[0],
         "predicted_dr": list(fao56.predicted_depletion_mm),
+        "sensor_fc_percent": fao56.sensor_fc_percent,
+        "sensor_raw_percent": fao56.sensor_raw_percent,
+        "sensor_wp_percent": fao56.sensor_wp_percent,
+        "sensor_calibration_mode": fao56.sensor_calibration_mode,
     }

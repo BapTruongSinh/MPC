@@ -225,6 +225,9 @@ export function FaoAuditPanel({ recommendation }: { recommendation: AMPCRecommen
     { label: "ET0_step", value: fmtMetric(fao?.et0_step, 3, " mm") },
     { label: "ETc_adj", value: fmtMetric(fao?.etc_adj, 3, " mm") },
     { label: "irrigation_depth_mm", value: fmtMetric(fao?.irrigation_depth_mm, 3, " mm") },
+    { label: "sensor_fc", value: fmtMetric(fao?.sensor_fc_percent, 2, "%") },
+    { label: "sensor_raw", value: fmtMetric(fao?.sensor_raw_percent, 2, "%") },
+    { label: "sensor_wp", value: fmtMetric(fao?.sensor_wp_percent, 2, "%") },
   ];
 
   return (

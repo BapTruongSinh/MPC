@@ -97,6 +97,15 @@ function appendReading(prev: SensorReading[], reading: SensorReading | null) {
   return [...prev, reading].slice(-MAX_CHART_POINTS);
 }
 
+function websocketUrlWithToken() {
+  const token = localStorage.getItem("access_token");
+  if (!token) return WS_URL;
+
+  const url = new URL(WS_URL);
+  url.searchParams.set("token", token);
+  return url.toString();
+}
+
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const socketRef = useRef<WebSocket | null>(null);
 
@@ -171,7 +180,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      ws = new WebSocket(WS_URL);
+      ws = new WebSocket(websocketUrlWithToken());
       socketRef.current = ws;
 
       ws.onopen = () => {

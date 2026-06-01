@@ -132,6 +132,10 @@ export interface Fao56Audit {
   irrigation_depth_mm?: number | null;
   predicted_dr?: Array<number | null>;
   predicted_soil_moisture?: Array<number | null>;
+  sensor_fc_percent?: number | null;
+  sensor_raw_percent?: number | null;
+  sensor_wp_percent?: number | null;
+  sensor_calibration_mode?: string | null;
 }
 
 export interface ET0Audit {

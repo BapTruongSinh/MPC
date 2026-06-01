@@ -254,6 +254,22 @@ def _validate_runtime_common(
         raise serializers.ValidationError({"crop_kc": "crop_kc must be >= 0"})
     if not (0.0 <= target_low < target_high <= 100.0):
         raise serializers.ValidationError("target_low/target_high must satisfy 0 <= low < high <= 100")
+    depletion_fraction_p = _current_or_default(
+        instance,
+        attrs,
+        "depletion_fraction_p",
+        FAO56_NUMERIC_DEFAULTS["depletion_fraction_p"],
+    )
+    if not (0.0 < depletion_fraction_p < 1.0):
+        raise serializers.ValidationError({"depletion_fraction_p": "depletion_fraction_p must satisfy 0 < p < 1"})
+    sensor_wp = target_high - ((target_high - target_low) / depletion_fraction_p)
+    if sensor_wp < 0.0:
+        raise serializers.ValidationError({
+            "target_low": (
+                "target_low/target_high cannot map to FAO RAW with current "
+                "depletion_fraction_p; narrow the band or increase depletion_fraction_p"
+            )
+        })
     if step_seconds <= 0:
         raise serializers.ValidationError({"step_seconds": "step_seconds must be > 0"})
     if horizon_steps < 1:

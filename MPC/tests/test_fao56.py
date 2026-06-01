@@ -10,12 +10,16 @@ from mpc.fao56 import (
     Fao56Config,
     adjusted_crop_et_mm,
     advance_depletion_mm,
+    calibrated_depletion_from_sensor_percent,
+    calibrated_sensor_percent_from_depletion_mm,
     depletion_from_theta_mm,
     et0_step_mm,
     fao56_config_from_mapping,
     irrigation_depth_mm,
     readily_available_water_mm,
+    sensor_calibration_from_target_band,
     sensor_percent_from_theta,
+    state_from_calibrated_sensor_percent,
     state_from_sensor_percent,
     theta_from_sensor_percent,
     total_available_water_mm,
@@ -70,6 +74,66 @@ def test_sensor_percent_endpoints_map_to_wet_and_dry_bounds() -> None:
     assert depletion_from_theta_mm(dry_theta, config) == pytest.approx(
         total_available_water_mm(config)
     )
+
+
+def test_target_band_calibration_maps_sensor_thresholds_to_fao_depletion() -> None:
+    config = Fao56Config()
+    calibration = sensor_calibration_from_target_band(
+        target_low=55.0,
+        target_high=65.0,
+        config=config,
+    )
+
+    assert calibration.field_capacity_percent == pytest.approx(65.0)
+    assert calibration.raw_percent == pytest.approx(55.0)
+    assert calibration.wilting_point_percent == pytest.approx(45.0)
+    assert calibrated_depletion_from_sensor_percent(
+        65.0,
+        config,
+        target_low=55.0,
+        target_high=65.0,
+    ) == pytest.approx(0.0)
+    assert calibrated_depletion_from_sensor_percent(
+        55.0,
+        config,
+        target_low=55.0,
+        target_high=65.0,
+    ) == pytest.approx(25.5)
+    assert calibrated_depletion_from_sensor_percent(
+        50.0,
+        config,
+        target_low=55.0,
+        target_high=65.0,
+    ) == pytest.approx(38.25)
+    assert calibrated_depletion_from_sensor_percent(
+        45.0,
+        config,
+        target_low=55.0,
+        target_high=65.0,
+    ) == pytest.approx(51.0)
+
+    state = state_from_calibrated_sensor_percent(
+        55.0,
+        config,
+        target_low=55.0,
+        target_high=65.0,
+    )
+    assert state.depletion_mm == pytest.approx(state.raw_mm)
+    assert calibrated_sensor_percent_from_depletion_mm(
+        state.taw_mm,
+        config,
+        target_low=55.0,
+        target_high=65.0,
+    ) == pytest.approx(45.0)
+
+
+def test_target_band_calibration_rejects_impossible_sensor_wilting_point() -> None:
+    with pytest.raises(ValueError, match="sensor_wp_percent"):
+        sensor_calibration_from_target_band(
+            target_low=10.0,
+            target_high=90.0,
+            config=Fao56Config(depletion_fraction_p=0.5),
+        )
 
 
 def test_water_stress_coefficient_matches_fao56_thresholds() -> None:

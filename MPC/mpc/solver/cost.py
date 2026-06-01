@@ -10,10 +10,11 @@ from typing import Sequence
 from mpc.config import ControllerConfig
 from mpc.fao56 import (
     adjusted_crop_et_mm,
+    calibrated_sensor_percent_from_depletion_mm,
     et0_step_mm,
     irrigation_depth_mm,
-    sensor_percent_from_depletion_mm,
-    state_from_sensor_percent,
+    sensor_calibration_from_target_band,
+    state_from_calibrated_sensor_percent,
     water_stress_coefficient,
 )
 
@@ -44,6 +45,10 @@ class Fao56Trajectory:
     etc_adjusted_mm: tuple[float, ...]
     irrigation_depth_mm: tuple[float, ...]
     depletion_raw_next_mm: tuple[float, ...]
+    sensor_fc_percent: float
+    sensor_raw_percent: float
+    sensor_wp_percent: float
+    sensor_calibration_mode: str
 
 
 def band_error(value: float, *, low: float, high: float) -> float:
@@ -168,7 +173,17 @@ def score_fao56_trajectory(
     if daily_cap_seconds <= 0.0:
         raise ValueError("soft daily cap must be > 0")
 
-    fao_state = state_from_sensor_percent(initial_sensor_percent, config.fao56)
+    calibration = sensor_calibration_from_target_band(
+        target_low=config.target_band.low,
+        target_high=config.target_band.high,
+        config=config.fao56,
+    )
+    fao_state = state_from_calibrated_sensor_percent(
+        initial_sensor_percent,
+        config.fao56,
+        target_low=config.target_band.low,
+        target_high=config.target_band.high,
+    )
     taw = fao_state.taw_mm
     raw = fao_state.raw_mm
     current_dr = fao_state.depletion_mm
@@ -200,9 +215,11 @@ def score_fao56_trajectory(
         irrigation = irrigation_depth_mm(pump, config.fao56)
         depletion_raw_next = current_dr + etc_adjusted - irrigation
         depletion_next = min(max(depletion_raw_next, 0.0), taw)
-        forecast_sensor = sensor_percent_from_depletion_mm(
+        forecast_sensor = calibrated_sensor_percent_from_depletion_mm(
             depletion_next,
             config.fao56,
+            target_low=config.target_band.low,
+            target_high=config.target_band.high,
         )
         if not (
             isfinite(depletion_raw_next)
@@ -282,6 +299,10 @@ def score_fao56_trajectory(
         etc_adjusted_mm=tuple(etc_values),
         irrigation_depth_mm=tuple(irrigation_values),
         depletion_raw_next_mm=tuple(raw_next_values),
+        sensor_fc_percent=calibration.field_capacity_percent,
+        sensor_raw_percent=calibration.raw_percent,
+        sensor_wp_percent=calibration.wilting_point_percent,
+        sensor_calibration_mode="target_band_to_raw",
     )
 
 
@@ -307,7 +328,17 @@ def score_fao56_pump_sequence_with_daily_reset(
     if daily_cap_seconds <= 0.0:
         raise ValueError("soft daily cap must be > 0")
 
-    fao_state = state_from_sensor_percent(initial_sensor_percent, config.fao56)
+    calibration = sensor_calibration_from_target_band(
+        target_low=config.target_band.low,
+        target_high=config.target_band.high,
+        config=config.fao56,
+    )
+    fao_state = state_from_calibrated_sensor_percent(
+        initial_sensor_percent,
+        config.fao56,
+        target_low=config.target_band.low,
+        target_high=config.target_band.high,
+    )
     taw = fao_state.taw_mm
     raw = fao_state.raw_mm
     current_dr = fao_state.depletion_mm
@@ -339,9 +370,11 @@ def score_fao56_pump_sequence_with_daily_reset(
         irrigation = irrigation_depth_mm(pump, config.fao56)
         depletion_raw_next = current_dr + etc_adjusted - irrigation
         depletion_next = min(max(depletion_raw_next, 0.0), taw)
-        forecast_sensor = sensor_percent_from_depletion_mm(
+        forecast_sensor = calibrated_sensor_percent_from_depletion_mm(
             depletion_next,
             config.fao56,
+            target_low=config.target_band.low,
+            target_high=config.target_band.high,
         )
         if not (
             isfinite(depletion_raw_next)
@@ -424,4 +457,8 @@ def score_fao56_pump_sequence_with_daily_reset(
         etc_adjusted_mm=tuple(etc_values),
         irrigation_depth_mm=tuple(irrigation_values),
         depletion_raw_next_mm=tuple(raw_next_values),
+        sensor_fc_percent=calibration.field_capacity_percent,
+        sensor_raw_percent=calibration.raw_percent,
+        sensor_wp_percent=calibration.wilting_point_percent,
+        sensor_calibration_mode="target_band_to_raw",
     )

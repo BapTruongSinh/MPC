@@ -116,7 +116,7 @@ def test_grid_solver_in_band_prefers_no_pump() -> None:
     assert recommendation.safety_status == "safe"
     assert recommendation.pump_seconds == 0.0
     assert recommendation.step_seconds == 300
-    assert recommendation.reason == "field_capacity_or_wetter"
+    assert recommendation.reason == "within_raw"
     assert set(recommendation.to_dict()) == {
         "pump_seconds",
         "step_seconds",
@@ -128,13 +128,16 @@ def test_grid_solver_in_band_prefers_no_pump() -> None:
         "fao56",
     }
     assert recommendation.fao56 is not None
-    assert recommendation.fao56["initial_dr"] == pytest.approx(0.0)
+    assert recommendation.fao56["initial_dr"] == pytest.approx(12.75)
+    assert recommendation.fao56["sensor_fc_percent"] == pytest.approx(65.0)
+    assert recommendation.fao56["sensor_raw_percent"] == pytest.approx(55.0)
+    assert recommendation.fao56["sensor_wp_percent"] == pytest.approx(45.0)
 
 
 def test_grid_solver_below_band_recommends_pump() -> None:
     recommendation = GridShootingSolver().recommend(
-        state=_state(0.0),
-        history=_history(0.0),
+        state=_state(50.0),
+        history=_history(50.0),
         plant_model=LinearPlant(gain_per_full_pump=2.0),
         now=NOW,
     )
@@ -148,7 +151,7 @@ def test_grid_solver_below_band_recommends_pump() -> None:
 
 def test_grid_solver_uses_state_as_latest_forecast_record() -> None:
     recommendation = GridShootingSolver().recommend(
-        state=_state(0.0),
+        state=_state(50.0),
         history=_history(60.0),
         plant_model=LinearPlant(gain_per_full_pump=2.0),
         now=NOW,

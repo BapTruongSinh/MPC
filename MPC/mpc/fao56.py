@@ -109,6 +109,13 @@ class Fao56State:
 
 
 @dataclass(frozen=True)
+class SensorCalibration:
+    field_capacity_percent: float
+    raw_percent: float
+    wilting_point_percent: float
+
+
+@dataclass(frozen=True)
 class Fao56Step:
     depletion_raw_next_mm: float
     depletion_next_mm: float
@@ -184,6 +191,82 @@ def sensor_percent_from_depletion_mm(
         theta_from_depletion_mm(depletion_mm, config),
         config,
     )
+
+
+def sensor_calibration_from_target_band(
+    *,
+    target_low: float,
+    target_high: float,
+    config: Fao56Config,
+) -> SensorCalibration:
+    _require_finite("target_low", target_low)
+    _require_finite("target_high", target_high)
+    if not (0.0 <= target_low < target_high <= 100.0):
+        raise ValueError("target_low/target_high must satisfy 0 <= low < high <= 100")
+
+    sensor_wp = target_high - (
+        (target_high - target_low) / config.depletion_fraction_p
+    )
+    if sensor_wp < 0.0:
+        raise ValueError(
+            "sensor calibration requires sensor_wp_percent >= 0; "
+            "narrow target_low/target_high or increase depletion_fraction_p"
+        )
+    return SensorCalibration(
+        field_capacity_percent=target_high,
+        raw_percent=target_low,
+        wilting_point_percent=sensor_wp,
+    )
+
+
+def calibrated_depletion_from_sensor_percent(
+    sensor_percent: float,
+    config: Fao56Config,
+    *,
+    target_low: float,
+    target_high: float,
+) -> float:
+    _require_finite("sensor_percent", sensor_percent)
+    if not (0.0 <= sensor_percent <= 100.0):
+        raise ValueError("sensor_percent must satisfy 0 <= S <= 100")
+
+    calibration = sensor_calibration_from_target_band(
+        target_low=target_low,
+        target_high=target_high,
+        config=config,
+    )
+    taw = total_available_water_mm(config)
+    sensor_span = (
+        calibration.field_capacity_percent
+        - calibration.wilting_point_percent
+    )
+    depletion = (
+        (calibration.field_capacity_percent - sensor_percent)
+        / sensor_span
+        * taw
+    )
+    return clamp(depletion, 0.0, taw)
+
+
+def calibrated_sensor_percent_from_depletion_mm(
+    depletion_mm: float,
+    config: Fao56Config,
+    *,
+    target_low: float,
+    target_high: float,
+) -> float:
+    calibration = sensor_calibration_from_target_band(
+        target_low=target_low,
+        target_high=target_high,
+        config=config,
+    )
+    taw = total_available_water_mm(config)
+    depletion = clamp_checked(depletion_mm, 0.0, taw, "depletion_mm")
+    sensor_span = (
+        calibration.field_capacity_percent
+        - calibration.wilting_point_percent
+    )
+    return calibration.field_capacity_percent - (depletion / taw) * sensor_span
 
 
 def total_available_water_mm(config: Fao56Config) -> float:
@@ -309,6 +392,33 @@ def state_from_sensor_percent(
     taw = total_available_water_mm(config)
     raw = readily_available_water_mm(config, taw)
     depletion = depletion_from_theta_mm(theta, config, taw)
+    ks = water_stress_coefficient(depletion, config, taw, raw)
+    return Fao56State(
+        sensor_percent=sensor_percent,
+        theta=theta,
+        taw_mm=taw,
+        raw_mm=raw,
+        depletion_mm=depletion,
+        water_stress_ks=ks,
+    )
+
+
+def state_from_calibrated_sensor_percent(
+    sensor_percent: float,
+    config: Fao56Config,
+    *,
+    target_low: float,
+    target_high: float,
+) -> Fao56State:
+    depletion = calibrated_depletion_from_sensor_percent(
+        sensor_percent,
+        config,
+        target_low=target_low,
+        target_high=target_high,
+    )
+    taw = total_available_water_mm(config)
+    raw = readily_available_water_mm(config, taw)
+    theta = theta_from_depletion_mm(depletion, config)
     ks = water_stress_coefficient(depletion, config, taw, raw)
     return Fao56State(
         sensor_percent=sensor_percent,

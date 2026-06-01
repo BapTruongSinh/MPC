@@ -9,7 +9,11 @@ from math import isfinite
 from pathlib import Path
 from typing import Any, Mapping
 
-from .fao56 import Fao56Config, fao56_config_from_mapping
+from .fao56 import (
+    Fao56Config,
+    fao56_config_from_mapping,
+    sensor_calibration_from_target_band,
+)
 
 
 def _require_finite(name: str, value: float) -> None:
@@ -185,6 +189,11 @@ class ControllerConfig:
             raise ValueError("step_seconds must be > 0")
         if self.horizon_steps < 1:
             raise ValueError("horizon_steps must be >= 1")
+        sensor_calibration_from_target_band(
+            target_low=self.target_band.low,
+            target_high=self.target_band.high,
+            config=self.fao56,
+        )
 
 
 def controller_config_from_mapping(
