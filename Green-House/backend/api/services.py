@@ -306,44 +306,6 @@ def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
     return reading
 
 
-def ingest_heartbeat_payload(payload: dict, device_code: str = 'esp32-main'):
-    metadata = validate_json_finite(payload.get('metadata') or {}, 'metadata')
-    sensor_errors = _clean_sensor_errors(payload.get('sensor_errors'))
-    firmware_version = _clean_limited_text(
-        'firmware_version',
-        payload.get('firmware_version'),
-        50,
-    )
-    manual_reason = _clean_limited_text(
-        'manual_reason',
-        payload.get('manual_reason'),
-        MANUAL_REASON_MAX_LENGTH,
-    )
-    payload = {**payload}
-    payload['metadata'] = metadata
-    payload['sensor_errors'] = sensor_errors
-    if firmware_version:
-        payload['firmware_version'] = firmware_version
-    if manual_reason:
-        payload['manual_reason'] = manual_reason
-
-    # Đánh dấu ESP32 online trong RAM
-    mark_esp32_online(device_code)
-
-    # Lưu metadata heartbeat vào DeviceState
-    state, _ = DeviceState.objects.get_or_create(device_code=device_code)
-    extra = {
-        **state.extra,
-        'uptime_ms': payload.get('uptime_ms'),
-        'free_heap': payload.get('free_heap'),
-        'firmware_version': firmware_version or state.extra.get('firmware_version', ''),
-        'transport': 'websocket',
-    }
-    state.extra = extra
-    state.save(update_fields=['extra', 'updated_at'])
-
-    sync_control_mode_from_payload(payload)
-
 
 def enqueue_device_command(device_code: str, command: str, value: str = '', payload: dict | None = None):
     command = _clean_limited_text('command', command, DEVICE_COMMAND_TEXT_MAX_LENGTH)

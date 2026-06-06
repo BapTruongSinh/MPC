@@ -1,5 +1,5 @@
 import { Thermometer, Droplets, Sun, Sprout, TrendingUp, TrendingDown, Minus, AlertTriangle } from "lucide-react";
-import type { SensorErrors, SensorReading } from "../lib/websocket";
+import type { SensorErrors, SensorReading } from "../lib/greenhouse.types";
 
 interface SensorCardsProps {
   data: SensorReading | null;

@@ -24,7 +24,6 @@ const menuItems = [
   { id: "sensors", label: "Cảm biến", icon: Thermometer, badge: "4" },
   { id: "history", label: "Lịch sử cảm biến", icon: History, badge: null },
   { id: "forecast", label: "Dự báo", icon: TrendingUp, badge: null },
-  { id: "devices", label: "Thiết bị", icon: Cpu, badge: null },
   { id: "suntracker", label: "SunTracker", icon: Sun, badge: "6" },
   { id: "action-history", label: "Lịch sử thao tác", icon: ListOrdered, badge: null },
   { id: "alerts", label: "Cảnh báo", icon: Bell, badge: "2" },

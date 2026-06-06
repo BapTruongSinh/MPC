@@ -19,7 +19,6 @@ from .services import (
     ack_device_command_payload,
     enqueue_device_command,
     get_pending_commands,
-    ingest_heartbeat_payload,
     ingest_sensor_payload,
     is_esp32_online,
     mark_device_offline,
@@ -183,10 +182,6 @@ def ingest_telemetry(data: dict):
     ingest_sensor_payload(data)
 
 
-@database_sync_to_async
-def ingest_heartbeat(data: dict):
-    ingest_heartbeat_payload(data)
-
 
 @database_sync_to_async
 def ack_command(data: dict):
@@ -199,11 +194,14 @@ def pending_commands():
 
 
 @database_sync_to_async
-def queue_manual_command(device_code: str, state: str):
+def queue_manual_command(device_code: str, state: str, duration: int = 0):
     if device_code not in {'fan', 'pump', 'light', 'mist'}:
         raise ValueError(f'device not found: {device_code}')
     _set_manual_mode(reason=f'manual_ws:{device_code}')
-    enqueue_device_command(device_code=device_code, command='set_power', value=state.lower())
+    payload = None
+    if duration > 0 and state.lower() == 'on':
+        payload = {'duration': duration}
+    enqueue_device_command(device_code=device_code, command='set_power', value=state.lower(), payload=payload)
 
 
 @database_sync_to_async
@@ -301,11 +299,12 @@ class FrontendConsumer(AsyncWebsocketConsumer):
             if msg_type == 'device_control':
                 device = str(payload.get('device') or '').strip().lower()
                 state = str(payload.get('state') or '').strip().lower()
+                duration = _coerce_number(payload.get('duration'), 0)
 
                 if device not in {'fan', 'pump', 'light', 'mist'} or state not in {'on', 'off'}:
                     raise ValueError('invalid device_control')
 
-                await queue_manual_command(device, state)
+                await queue_manual_command(device, state, int(duration))
 
                 commands = await pending_commands()
                 await self.channel_layer.group_send(
@@ -448,10 +447,6 @@ class ESPConsumer(AsyncWebsocketConsumer):
             if msg_type == 'telemetry':
                 await ingest_telemetry(data)
                 await self.push_state_to_frontend()
-                return
-
-            if msg_type == 'heartbeat':
-                await ingest_heartbeat(data)
                 return
 
             if msg_type == 'ack':

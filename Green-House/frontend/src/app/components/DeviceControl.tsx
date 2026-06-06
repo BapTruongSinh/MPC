@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Fan, Lightbulb, Droplets, Power, Activity, Zap, Loader2, CloudRain } from "lucide-react";
+import { Fan, Lightbulb, Droplets, Power, Zap, Loader2, CloudRain, Timer } from "lucide-react";
 import type { ControlState, DeviceItem } from "../lib/greenhouse.types";
 import { useRealtime } from "../contexts/RealtimeContext";
 
@@ -141,6 +141,8 @@ export function DeviceControl({ control }: DeviceControlProps) {
   const { devices, sensorErrors, sendMode, sendDeviceControl } = useRealtime();
   const [togglingKey, setTogglingKey] = useState<DeviceType | null>(null);
   const [switchingAuto, setSwitchingAuto] = useState(false);
+  const [expandedTimer, setExpandedTimer] = useState<DeviceType | null>(null);
+  const [timerValues, setTimerValues] = useState<Record<DeviceType, number>>({ fan: 15, light: 15, pump: 15, mist: 15 });
 
   const visibleDevices = useMemo(() => normalizeDevices(devices), [devices]);
   const isAuto = control?.mode === "AUTO";
@@ -157,16 +159,24 @@ export function DeviceControl({ control }: DeviceControlProps) {
   const handleToggle = async (deviceType: DeviceType, isOn: boolean) => {
     if (isAuto) return;
     setTogglingKey(deviceType);
-    sendDeviceControl(deviceType, isOn ? "OFF" : "ON");
+    
+    // Bật/Tắt bình thường không hẹn giờ
+    sendDeviceControl(deviceType, isOn ? "OFF" : "ON", 0);
+    
+    if (isOn) setExpandedTimer(null); // Đang bật mà tắt thì đóng panel
     setTimeout(() => setTogglingKey(null), 100);
   };
 
-  const handleAllDevices = async (turnOn: boolean) => {
+  const handleToggleWithTimer = async (deviceType: DeviceType, durationMinutes: number) => {
     if (isAuto) return;
-    (["fan", "pump", "light", "mist"] as DeviceType[]).forEach((device) => {
-      sendDeviceControl(device, turnOn ? "ON" : "OFF");
-    });
+    setTogglingKey(deviceType);
+    
+    sendDeviceControl(deviceType, "ON", durationMinutes * 60);
+    
+    setTimeout(() => setTogglingKey(null), 100);
   };
+
+
 
   const activeCount = visibleDevices.filter((d) => d.state?.is_on).length;
   const onlineCount = visibleDevices.filter((d) => d.status === "online").length;
@@ -219,10 +229,10 @@ export function DeviceControl({ control }: DeviceControlProps) {
           const isToggling = togglingKey === device.device_type;
 
           return (
+            <div key={device.device_type} className="flex flex-col">
             <div
-              key={device.device_type}
               className={`flex items-center gap-4 p-4 rounded-2xl border transition-all duration-300 ${isOn ? "border-blue-100 bg-blue-50/50 shadow-[0_8px_20px_rgba(59,130,246,0.08)]" : "border-slate-200 bg-slate-50/60"
-                } ${isAuto ? "opacity-70" : ""}`}
+                } ${expandedTimer === device.device_type ? "rounded-b-none border-b-0" : ""} ${isAuto ? "opacity-70" : ""}`}
             >
               <div className="relative w-11 h-11 flex items-center justify-center flex-shrink-0">
                 {isOn && <span className={`absolute inset-0 rounded-xl ${meta.activeGlowClass}`}></span>}
@@ -254,13 +264,30 @@ export function DeviceControl({ control }: DeviceControlProps) {
               </div>
 
               <div className="flex flex-col items-end gap-2">
-                <span
-                  className={`px-2 py-0.5 rounded-full text-xs font-medium ${isOn ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-600"
-                    }`}
-                  style={{ fontSize: "11px" }}
-                >
-                  {isOn ? "Bật" : "Tắt"}
-                </span>
+                <div className="flex items-center gap-2">
+                  {!isOn && (
+                    <button
+                      onClick={() => setExpandedTimer(expandedTimer === device.device_type ? null : device.device_type)}
+                      disabled={isAuto || isToggling}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full transition-all duration-200 border ${
+                        expandedTimer === device.device_type
+                          ? "bg-blue-50 border-blue-200 text-blue-600 shadow-sm"
+                          : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 shadow-sm"
+                      }`}
+                      title="Hẹn giờ bật"
+                    >
+                      <Timer className="w-3.5 h-3.5" />
+                      <span style={{ fontSize: "11px", fontWeight: 600 }}>Hẹn giờ</span>
+                    </button>
+                  )}
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${isOn ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-600"
+                      }`}
+                    style={{ fontSize: "11px" }}
+                  >
+                    {isOn ? "Bật" : "Tắt"}
+                  </span>
+                </div>
 
                 <button
                   onClick={() => handleToggle(device.device_type, isOn)}
@@ -279,29 +306,73 @@ export function DeviceControl({ control }: DeviceControlProps) {
                 </button>
               </div>
             </div>
+            
+            {/* Expanded Timer Panel */}
+            {expandedTimer === device.device_type && !isOn && (
+              <div className="px-4 pb-4 pt-2 -mt-2 bg-slate-50/60 border border-t-0 border-slate-200 rounded-b-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                    <Timer className="w-3.5 h-3.5 text-blue-500" />
+                    Hẹn giờ đếm ngược
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="1"
+                      max="120"
+                      value={timerValues[device.device_type]}
+                      onChange={(e) => setTimerValues(prev => ({ ...prev, [device.device_type]: parseInt(e.target.value) || 1 }))}
+                      className="w-14 px-1 py-0.5 text-center text-xs font-semibold text-blue-700 bg-white border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <span className="text-xs text-slate-500">phút</span>
+                  </div>
+                </div>
+
+                <input
+                  type="range"
+                  min="1"
+                  max="120"
+                  value={timerValues[device.device_type]}
+                  onChange={(e) => setTimerValues(prev => ({ ...prev, [device.device_type]: parseInt(e.target.value) }))}
+                  className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 mb-3"
+                />
+
+                <div className="flex items-center gap-2 mb-3">
+                  {[5, 15, 30, 60].map(mins => (
+                    <button
+                      key={mins}
+                      onClick={() => setTimerValues(prev => ({ ...prev, [device.device_type]: mins }))}
+                      className={`flex-1 py-1 rounded-md text-[10px] font-medium transition-colors ${
+                        timerValues[device.device_type] === mins
+                          ? "bg-blue-500 text-white shadow-sm"
+                          : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {mins}p
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => {
+                    handleToggleWithTimer(device.device_type, timerValues[device.device_type]);
+                    setExpandedTimer(null);
+                  }}
+                  disabled={isAuto || isToggling}
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm shadow-blue-500/20"
+                >
+                  <Timer className="w-3.5 h-3.5" />
+                  Bật và Tự động Tắt sau {timerValues[device.device_type]} phút
+                </button>
+              </div>
+            )}
+            
+            </div>
           );
         })}
       </div>
 
-      <div className="px-5 pb-5 flex gap-3">
-        <button
-          onClick={() => handleAllDevices(true)}
-          disabled={isAuto}
-          className="flex-1 py-2 gradient-action text-white rounded-xl transition-all duration-300 hover:-translate-y-0.5 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ fontSize: "13px", fontWeight: 600 }}
-        >
-          <Power className="w-3.5 h-3.5" /> Bật tất cả
-        </button>
 
-        <button
-          onClick={() => handleAllDevices(false)}
-          disabled={isAuto}
-          className="flex-1 py-2 bg-slate-100 text-slate-700 rounded-xl border border-slate-200 transition-colors hover:bg-slate-200 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ fontSize: "13px", fontWeight: 600 }}
-        >
-          <Power className="w-3.5 h-3.5" /> Tắt tất cả
-        </button>
-      </div>
     </div>
   );
 }

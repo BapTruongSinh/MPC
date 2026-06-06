@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   XCircle,
   Clock,
+  Timer,
 } from "lucide-react";
 import { apiClient } from "../api/client";
 
@@ -59,6 +60,13 @@ function formatCommand(command: string, value: string) {
     return value === "on" ? "Bật thiết bị" : "Tắt thiết bị";
   }
   return `${command} ${value ? `(${value})` : ""}`;
+}
+
+function formatDuration(payload: any) {
+  if (!payload || typeof payload !== 'object' || !payload.duration) return "Không hẹn giờ";
+  const sec = payload.duration;
+  if (sec < 60) return `${sec} giây`;
+  return `${Math.round(sec / 60)} phút`;
 }
 
 export function ActionHistoryPage() {
@@ -162,7 +170,7 @@ export function ActionHistoryPage() {
                 <tr className="bg-gradient-to-r from-blue-50 to-blue-100 border-b border-slate-200">
                   <th
                     className="text-left px-5 py-4 text-slate-700"
-                    style={{ fontSize: "12px", fontWeight: 700 }}
+                    style={{ fontSize: "14px", fontWeight: 700 }}
                   >
                     <div className="flex items-center gap-2">
                       <Clock3 className="w-4 h-4 text-blue-600" />
@@ -171,7 +179,7 @@ export function ActionHistoryPage() {
                   </th>
                   <th
                     className="text-left px-5 py-4 text-slate-700"
-                    style={{ fontSize: "12px", fontWeight: 700 }}
+                    style={{ fontSize: "14px", fontWeight: 700 }}
                   >
                     <div className="flex items-center gap-2">
                       <Cpu className="w-4 h-4 text-indigo-600" />
@@ -180,7 +188,7 @@ export function ActionHistoryPage() {
                   </th>
                   <th
                     className="text-left px-5 py-4 text-slate-700"
-                    style={{ fontSize: "12px", fontWeight: 700 }}
+                    style={{ fontSize: "14px", fontWeight: 700 }}
                   >
                     <div className="flex items-center gap-2">
                       <TerminalSquare className="w-4 h-4 text-purple-600" />
@@ -189,9 +197,12 @@ export function ActionHistoryPage() {
                   </th>
                   <th
                     className="text-left px-5 py-4 text-slate-700"
-                    style={{ fontSize: "12px", fontWeight: 700 }}
+                    style={{ fontSize: "14px", fontWeight: 700 }}
                   >
-                    Trạng thái
+                    <div className="flex items-center gap-2">
+                      <Timer className="w-4 h-4 text-emerald-600" />
+                      Hẹn giờ tự tắt
+                    </div>
                   </th>
                 </tr>
               </thead>
@@ -213,13 +224,13 @@ export function ActionHistoryPage() {
                         <div>
                           <p
                             className="text-slate-800"
-                            style={{ fontSize: "13px", fontWeight: 600 }}
+                            style={{ fontSize: "15px", fontWeight: 600 }}
                           >
                             {Number.isNaN(createdAt.getTime())
                               ? "--"
                               : createdAt.toLocaleDateString("vi-VN")}
                           </p>
-                          <p className="text-slate-400" style={{ fontSize: "11px" }}>
+                          <p className="text-slate-500" style={{ fontSize: "13px" }}>
                             {Number.isNaN(createdAt.getTime())
                               ? "--"
                               : createdAt.toLocaleTimeString("vi-VN", {
@@ -234,7 +245,7 @@ export function ActionHistoryPage() {
                       <td className="px-5 py-4">
                         <span
                           className="font-semibold text-slate-700"
-                          style={{ fontSize: "14px" }}
+                          style={{ fontSize: "15px" }}
                         >
                           {formatDeviceName(row.device_code)}
                         </span>
@@ -242,22 +253,21 @@ export function ActionHistoryPage() {
 
                       <td className="px-5 py-4">
                         <span
-                          className="text-slate-600"
-                          style={{ fontSize: "14px" }}
+                          className="text-slate-700 font-medium"
+                          style={{ fontSize: "15px" }}
                         >
                           {formatCommand(row.command, row.value)}
                         </span>
                       </td>
 
                       <td className="px-5 py-4">
-                        <div
-                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-white/50 ${statusInfo.bg} ${statusInfo.color}`}
+                        <span
+                          className={`inline-flex items-center px-2.5 py-1 rounded-md text-sm font-medium ${
+                            row.payload && row.payload.duration ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-600"
+                          }`}
                         >
-                          <StatusIcon className="w-3.5 h-3.5" />
-                          <span style={{ fontSize: "12px", fontWeight: 600 }}>
-                            {statusInfo.label}
-                          </span>
-                        </div>
+                          {formatDuration(row.payload)}
+                        </span>
                       </td>
                     </tr>
                   );

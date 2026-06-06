@@ -683,29 +683,7 @@ class IngestReadingSerializer(serializers.Serializer):
         return validate_json_finite(value, "device_states")
 
 
-class IngestHeartbeatSerializer(serializers.Serializer):
-    firmware_version = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=DEVICE_FIRMWARE_MAX_LENGTH,
-    )
-    metadata = serializers.DictField(required=False)
-    uptime_ms = serializers.IntegerField(required=False, allow_null=True)
-    free_heap = serializers.IntegerField(required=False, allow_null=True)
-    sensor_errors = serializers.DictField(required=False)
-    auto_mode = serializers.BooleanField(required=False)
-    mode = serializers.CharField(required=False, allow_blank=True)
-    manual_reason = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=MANUAL_REASON_MAX_LENGTH,
-    )
 
-    def validate_metadata(self, value):
-        return validate_json_finite(value, "metadata")
-
-    def validate_sensor_errors(self, value):
-        return validate_json_finite(_validate_sensor_error_keys(value), "sensor_errors")
 
 
 class ControlModeInputSerializer(serializers.Serializer):

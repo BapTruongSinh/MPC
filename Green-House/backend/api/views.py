@@ -36,7 +36,6 @@ from .serializers import (
     CycleSerializer,
     EvaluationSummarySerializer,
     GreenhouseControlProfileSerializer,
-    IngestHeartbeatSerializer,
     IngestReadingSerializer,
     LegacyAMPCRecommendationSerializer,
     LiveSampleSerializer,
@@ -61,7 +60,6 @@ from .services import (
     build_uptime_hint,
     enqueue_device_command,
     get_pending_commands,
-    ingest_heartbeat_payload,
     ingest_sensor_payload,
     is_esp32_online,
     notify_pending_commands,
@@ -576,17 +574,6 @@ class IngestReadingsView(APIView):
             'message': 'Đã nhận dữ liệu cảm biến',
         })
 
-
-class IngestHeartbeatView(APIView):
-    """Nhận heartbeat từ ESP32 qua HTTP (không cần token device)."""
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        serializer = IngestHeartbeatSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        payload = {**request.data, **serializer.validated_data}
-        ingest_heartbeat_payload(payload)
-        return Response({'message': 'heartbeat ok'})
 
 
 class IngestPendingCommandsView(APIView):

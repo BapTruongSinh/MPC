@@ -37,7 +37,6 @@ function Dashboard() {
               {activeMenu === "sensors" && "Quản lý cảm biến"}
               {activeMenu === "history" && "Lịch sử cảm biến"}
               {activeMenu === "forecast" && "Dự báo sắp tới"}
-              {activeMenu === "devices" && "Điều khiển thiết bị"}
               {activeMenu === "suntracker" && "SunTracker"}
               {activeMenu === "zones" && "Quản lý khu vực"}
               {activeMenu === "action-history" && "Lịch sử thao tác"}
@@ -92,12 +91,6 @@ function Dashboard() {
         {activeMenu === "history" && <SensorHistory />}
 
         {activeMenu === "forecast" && <ForecastPage />}
-
-        {activeMenu === "devices" && (
-          <div className="max-w-lg">
-            <DeviceControl control={overview?.control ?? null} />
-          </div>
-        )}
 
         {activeMenu === "suntracker" && <SunTrackerPage />}
 

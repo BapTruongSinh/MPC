@@ -20,7 +20,6 @@ from .views import (
     DeviceToggleView,
     ForecastView,
     IngestCommandAckView,
-    IngestHeartbeatView,
     IngestPendingCommandsView,
     IngestReadingsView,
     LatestReadingView,
@@ -60,7 +59,6 @@ urlpatterns = [
     path('alerts/mark_all_read/', AlertMarkAllReadView.as_view(), name='alert-mark-all-read'),
     path('ingest/readings/', IngestReadingsView.as_view(), name='ingest-readings'),
     path('ingest/samples/', LiveIngestSamplesView.as_view(), name='ingest-samples'),
-    path('ingest/heartbeat/', IngestHeartbeatView.as_view(), name='ingest-heartbeat'),
     path('ingest/commands/pending/', IngestPendingCommandsView.as_view(), name='ingest-pending-commands'),
     path('ingest/commands/<int:pk>/ack/', IngestCommandAckView.as_view(), name='ingest-command-ack'),
 ]

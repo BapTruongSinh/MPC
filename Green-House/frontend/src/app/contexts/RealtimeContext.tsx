@@ -34,7 +34,7 @@ type RealtimeContextType = {
   sunTracker: SunTrackerState;
   sunChartHistory: SunTrackerState[];
   sendMode: (mode: "AUTO" | "MANUAL") => void;
-  sendDeviceControl: (device: "fan" | "pump" | "light" | "mist", state: "ON" | "OFF") => void;
+  sendDeviceControl: (device: "fan" | "pump" | "light" | "mist", state: "ON" | "OFF", durationSeconds?: number) => void;
   sendSunMode: (mode: SunTrackerMode) => void;
   sendSunServo: (servo: "vertical" | "horizontal", angle: number) => void;
   markAlertRead: (id: number) => void;
@@ -310,8 +310,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       sendMode: (mode) => {
         sendRaw({ type: "mode", value: mode });
       },
-      sendDeviceControl: (device, state) => {
-        sendRaw({ type: "device_control", device, state });
+      sendDeviceControl: (device, state, duration) => {
+        sendRaw({ type: "device_control", device, state, duration });
       },
       sendSunMode: (mode) => {
         setSunTracker((prev) => ({ ...prev, mode }));
