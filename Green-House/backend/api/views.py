@@ -1,15 +1,21 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from pathlib import Path
+import re
 
 from django.conf import settings
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
 from django.http import Http404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import ValidationError
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from .models import (
@@ -155,9 +161,45 @@ def _query_int(request, name: str, default: int, *, min_value: int, max_value: i
     return min(max(value, min_value), max_value)
 
 
-class LoginView(TokenObtainPairView):
-    permission_classes = [permissions.AllowAny]
-    serializer_class = LoginSerializer
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        username = request.data.get('username')
+        password = request.data.get('password')
+        user = authenticate(username=username, password=password)
+        if user is not None:
+            refresh = RefreshToken.for_user(user)
+            return Response({
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
+            })
+        return Response({'detail': 'Invalid credentials'}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+class SetupStatusView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        setup_required = not User.objects.exists()
+        return Response({'setup_required': setup_required})
+
+
+class SetupView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        if User.objects.exists():
+            return Response({'detail': 'Setup already completed'}, status=status.HTTP_400_BAD_REQUEST)
+
+        username = request.data.get('username')
+        password = request.data.get('password')
+
+        if not username or not password:
+            return Response({'detail': 'Username and password are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user = User.objects.create_superuser(username=username, password=password, email='')
+        return Response({'detail': 'Admin account created successfully'})
 
 
 class DashboardOverviewView(APIView):
@@ -515,6 +557,62 @@ class AlertMarkAllReadView(APIView):
     def post(self, request):
         updated = Alert.objects.filter(is_read=False).update(is_read=True, updated_at=timezone.now())
         return Response({'updated': updated})
+
+
+class TelegramSettingsView(APIView):
+    """GET trạng thái Telegram, PATCH cập nhật token/chat_id vào .env."""
+    _ENV_PATH = Path(settings.BASE_DIR) / '.env'
+
+    def _read_env(self):
+        path = self._ENV_PATH
+        return path.read_text(encoding='utf-8') if path.exists() else ''
+
+    def _write_env(self, content: str):
+        self._ENV_PATH.write_text(content, encoding='utf-8')
+
+    def _set_env_var(self, content: str, key: str, value: str) -> str:
+        pattern = re.compile(r'^' + re.escape(key) + r'=.*$', re.MULTILINE)
+        replacement = f'{key}={value}'
+        if pattern.search(content):
+            return pattern.sub(replacement, content)
+        # Thêm vào cuối file nếu chưa có
+        return content.rstrip('\n') + f'\n{replacement}\n'
+
+    def get(self, request):
+        token = getattr(settings, 'TELEGRAM_BOT_TOKEN', '') or ''
+        chat_id = getattr(settings, 'TELEGRAM_CHAT_ID', '') or ''
+        return Response({
+            'token_configured': bool(token),
+            'chat_id_configured': bool(chat_id),
+            'chat_id': chat_id,
+        })
+
+    def patch(self, request):
+        import importlib
+        import os
+        from dotenv import load_dotenv
+
+        token = request.data.get('telegram_bot_token', '').strip()
+        chat_id = request.data.get('telegram_chat_id', '').strip()
+
+        if not token and not chat_id:
+            raise ValidationError('Phải cung cấp ít nhất telegram_bot_token hoặc telegram_chat_id')
+
+        content = self._read_env()
+        if token:
+            content = self._set_env_var(content, 'TELEGRAM_BOT_TOKEN', token)
+        if chat_id:
+            content = self._set_env_var(content, 'TELEGRAM_CHAT_ID', chat_id)
+        self._write_env(content)
+
+        # Reload env vào os.environ và Django settings ngay lập tức
+        load_dotenv(self._ENV_PATH, override=True)
+        if token:
+            settings.TELEGRAM_BOT_TOKEN = token
+        if chat_id:
+            settings.TELEGRAM_CHAT_ID = chat_id
+
+        return Response({'detail': 'Đã cập nhật cấu hình Telegram thành công.', 'chat_id': chat_id})
 
 
 class LiveIngestSamplesView(APIView):

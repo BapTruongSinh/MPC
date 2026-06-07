@@ -6,6 +6,7 @@ import { DeviceControl } from "./components/DeviceControl";
 import { SensorChart } from "./components/SensorChart";
 import { SensorHistory } from "./components/SensorHistory";
 import { AutoSettings } from "./components/AutoSettings";
+import { TelegramSettings } from "./components/TelegramSettings";
 import { StatusBar } from "./components/StatusBar";
 import { Alerts } from "./components/Alerts";
 import { ForecastPage } from "./components/ForecastPage";
@@ -95,7 +96,12 @@ function Dashboard() {
         {activeMenu === "suntracker" && <SunTrackerPage />}
 
         {activeMenu === "action-history" && <ActionHistoryPage />}
-        {activeMenu === "settings" && <AutoSettings />}
+        {activeMenu === "settings" && (
+          <div className="space-y-5">
+            <AutoSettings />
+            <TelegramSettings />
+          </div>
+        )}
         {activeMenu === "alerts" && <Alerts />}
 
         {(activeMenu === "zones" || activeMenu === "help") && (

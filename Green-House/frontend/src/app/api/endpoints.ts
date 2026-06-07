@@ -8,6 +8,12 @@ export interface LoginResponse {
 export const authLogin = (username: string, password: string) =>
   apiClient.post<LoginResponse>("/auth/login/", { username, password });
 
+export const authSetupStatus = () =>
+  apiClient.get<{ setup_required: boolean }>("/auth/setup-status/");
+
+export const authSetup = (username: string, password: string) =>
+  apiClient.post<{ detail: string }>("/auth/setup/", { username, password });
+
 // ─── Control ────────────────────────────────────────────────────────────────
 export interface ControlState {
   mode: "AUTO" | "MANUAL";
@@ -310,3 +316,14 @@ export const markAlertRead = (pk: number) =>
   apiClient.post<AlertItem>(`/alerts/${pk}/mark_read/`);
 export const markAllAlertsRead = () =>
   apiClient.post<{ updated: number }>("/alerts/mark_all_read/");
+
+// ─── Telegram Settings ───────────────────────────────────────────────────────
+export interface TelegramSettings {
+  token_configured: boolean;
+  chat_id_configured: boolean;
+  chat_id: string;
+}
+export const getTelegramSettings = () =>
+  apiClient.get<TelegramSettings>("/settings/telegram/");
+export const updateTelegramSettings = (payload: { telegram_bot_token?: string; telegram_chat_id?: string }) =>
+  apiClient.patch<{ detail: string; chat_id: string }>("/settings/telegram/", payload);

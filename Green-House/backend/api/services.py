@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import threading
 from datetime import timedelta
 
+import requests
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
+from django.conf import settings
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.exceptions import ValidationError
@@ -73,6 +76,25 @@ def _push_ws_group(group_name: str, event_type: str, data: dict):
             'data': data,
         },
     )
+
+
+def _do_send_telegram(message: str):
+    bot_token = getattr(settings, 'TELEGRAM_BOT_TOKEN', None)
+    chat_id = getattr(settings, 'TELEGRAM_CHAT_ID', None)
+    if not bot_token or not chat_id:
+        return
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": message}
+    try:
+        requests.post(url, json=payload, timeout=5)
+    except Exception:
+        pass
+
+
+def send_telegram_alert(title: str, message: str):
+    """Gửi thông báo Telegram chạy ngầm qua threading để không làm chậm API."""
+    full_message = f"🚨 *{title}*\n{message}"
+    threading.Thread(target=_do_send_telegram, args=(full_message,), daemon=True).start()
 
 
 # ── ESP32 online/offline theo RAM (thay vì DB Device) ──
@@ -228,12 +250,15 @@ def check_environmental_alerts(payload: dict, device_code: str = 'esp32-main'):
                     changed = True
                 elif not tracking.get('temp_alert_sent'):
                     if now - tracking['temp_alert_start'] >= ALERT_PERSISTENCE_SECONDS:
+                        title = 'Cảnh báo Nhiệt độ cực đoan'
+                        msg = f'Nhiệt độ hiện tại là {temp}°C, kéo dài liên tục quá {ALERT_PERSISTENCE_SECONDS//60} phút.'
                         Alert.objects.create(
                             level=Alert.Level.WARNING,
                             device_code=device_code,
-                            title='Cảnh báo Nhiệt độ cực đoan',
-                            message=f'Nhiệt độ hiện tại là {temp}°C, kéo dài liên tục quá {ALERT_PERSISTENCE_SECONDS//60} phút.',
+                            title=title,
+                            message=msg,
                         )
+                        send_telegram_alert(title, msg)
                         tracking['temp_alert_sent'] = True
                         changed = True
             else:
@@ -257,12 +282,15 @@ def check_environmental_alerts(payload: dict, device_code: str = 'esp32-main'):
                     changed = True
                 elif not tracking.get('soil_alert_sent'):
                     if now - tracking['soil_alert_start'] >= ALERT_PERSISTENCE_SECONDS:
+                        title = 'Cảnh báo Đất khô hạn'
+                        msg = f'Độ ẩm đất là {soil}%. Đất rất khô nhưng máy bơm chưa bật trong {ALERT_PERSISTENCE_SECONDS//60} phút qua.'
                         Alert.objects.create(
                             level=Alert.Level.ERROR,
                             device_code=device_code,
-                            title='Cảnh báo Đất khô hạn',
-                            message=f'Độ ẩm đất là {soil}%. Đất rất khô nhưng máy bơm chưa bật trong {ALERT_PERSISTENCE_SECONDS//60} phút qua.',
+                            title=title,
+                            message=msg,
                         )
+                        send_telegram_alert(title, msg)
                         tracking['soil_alert_sent'] = True
                         changed = True
             else:
@@ -278,12 +306,15 @@ def check_environmental_alerts(payload: dict, device_code: str = 'esp32-main'):
         idle_seconds = now - control.manual_changed_at.timestamp()
         if idle_seconds >= MANUAL_IDLE_SECONDS:
             if not tracking.get('manual_idle_alert_sent'):
+                title = 'Quên bật chế độ AUTO'
+                msg = f'Hệ thống đang ở chế độ thủ công (MANUAL) hơn {MANUAL_IDLE_SECONDS//60} phút mà không có thao tác nào. Bạn có quên bật lại AUTO không?'
                 Alert.objects.create(
                     level=Alert.Level.WARNING,
                     device_code=device_code,
-                    title='Quên bật chế độ AUTO',
-                    message=f'Hệ thống đang ở chế độ thủ công (MANUAL) hơn {MANUAL_IDLE_SECONDS//60} phút mà không có thao tác nào. Bạn có quên bật lại AUTO không?',
+                    title=title,
+                    message=msg,
                 )
+                send_telegram_alert(title, msg)
                 tracking['manual_idle_alert_sent'] = True
                 changed = True
         else:

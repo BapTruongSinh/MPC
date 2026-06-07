@@ -21,12 +21,12 @@ interface SidebarProps {
 
 const menuItems = [
   { id: "dashboard", label: "Tổng quan", icon: LayoutDashboard, badge: null },
-  { id: "sensors", label: "Cảm biến", icon: Thermometer, badge: "4" },
+  { id: "sensors", label: "Cảm biến", icon: Thermometer, badge: null },
   { id: "history", label: "Lịch sử cảm biến", icon: History, badge: null },
   { id: "forecast", label: "Dự báo", icon: TrendingUp, badge: null },
-  { id: "suntracker", label: "SunTracker", icon: Sun, badge: "6" },
+  { id: "suntracker", label: "SunTracker", icon: Sun, badge: null },
   { id: "action-history", label: "Lịch sử thao tác", icon: ListOrdered, badge: null },
-  { id: "alerts", label: "Cảnh báo", icon: Bell, badge: "2" },
+  { id: "alerts", label: "Cảnh báo", icon: Bell, badge: null },
   { id: "settings", label: "Cài đặt", icon: Settings, badge: null },
 ];
 
@@ -101,70 +101,8 @@ export function Sidebar({ activeMenu, setActiveMenu, open }: SidebarProps) {
                     </span>
 
                     <div className="ml-auto flex items-center gap-1">
-                      {item.badge && (
-                        <span
-                          className={`rounded-full px-1.5 py-0.5 min-w-[18px] text-center ${
-                            isActive ? "bg-blue-600 text-white" : "bg-slate-200 text-slate-600"
-                          }`}
-                          style={{ fontSize: "10px", fontWeight: 700 }}
-                        >
-                          {item.badge}
-                        </span>
-                      )}
                       {isActive && <ChevronRight className="w-3.5 h-3.5 text-blue-500" />}
                     </div>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-
-          <p
-            className="text-slate-400 px-3 mt-5 mb-2"
-            style={{
-              fontSize: "10px",
-              fontWeight: 600,
-              textTransform: "uppercase",
-              letterSpacing: "0.08em",
-            }}
-          >
-            Support
-          </p>
-
-          <ul className="space-y-1">
-            {bottomMenu.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <li key={item.id}>
-                  <button
-                    onClick={() => setActiveMenu(item.id)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all duration-200 ${
-                      activeMenu === item.id
-                        ? "bg-blue-50 text-blue-700 border-blue-100"
-                        : "text-slate-600 border-transparent hover:bg-slate-50 hover:border-slate-200"
-                    }`}
-                  >
-                    <div
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                        activeMenu === item.id ? "bg-blue-100" : "bg-slate-100"
-                      }`}
-                    >
-                      <Icon className="w-4 h-4" />
-                    </div>
-
-                    <span
-                      style={{
-                        fontSize: "13px",
-                        fontWeight: activeMenu === item.id ? 600 : 500,
-                      }}
-                    >
-                      {item.label}
-                    </span>
-
-                    {activeMenu === item.id && (
-                      <ChevronRight className="w-3.5 h-3.5 text-blue-500 ml-auto" />
-                    )}
                   </button>
                 </li>
               );

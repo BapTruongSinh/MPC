@@ -29,10 +29,15 @@ from .views import (
     RunMetricsView,
     RunSeriesView,
     SensorHistoryView,
+    TelegramSettingsView,
+    SetupView,
+    SetupStatusView,
 )
 
 urlpatterns = [
     path('auth/login/', LoginView.as_view(), name='auth-login'),
+    path('auth/setup/', SetupView.as_view(), name='auth-setup'),
+    path('auth/setup-status/', SetupStatusView.as_view(), name='auth-setup-status'),
     path('dashboard/overview/', DashboardOverviewView.as_view(), name='dashboard-overview'),
     path('sensor-readings/latest/', LatestReadingView.as_view(), name='sensor-latest'),
     path('sensor-readings/chart/', ChartView.as_view(), name='sensor-chart'),
@@ -61,4 +66,5 @@ urlpatterns = [
     path('ingest/samples/', LiveIngestSamplesView.as_view(), name='ingest-samples'),
     path('ingest/commands/pending/', IngestPendingCommandsView.as_view(), name='ingest-pending-commands'),
     path('ingest/commands/<int:pk>/ack/', IngestCommandAckView.as_view(), name='ingest-command-ack'),
+    path('settings/telegram/', TelegramSettingsView.as_view(), name='telegram-settings'),
 ]
