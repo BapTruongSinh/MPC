@@ -19,12 +19,22 @@ import {
 import { useRealtime } from "../contexts/RealtimeContext";
 import type { SunTrackerMode } from "../lib/greenhouse.types";
 
+const SUN_SERVO_HORIZONTAL_MIN = 10;
+const SUN_SERVO_HORIZONTAL_MAX = 170;
+
+const SUN_SERVO_VERTICAL_MIN = 10;
+const SUN_SERVO_VERTICAL_MAX = 80;
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function clampServo(value: number) {
-  return Math.max(0, Math.min(180, Math.round(value)));
+function clampServoHorizontal(value: number) {
+  return clamp(Math.round(value), SUN_SERVO_HORIZONTAL_MIN, SUN_SERVO_HORIZONTAL_MAX);
+}
+
+function clampServoVertical(value: number) {
+  return clamp(Math.round(value), SUN_SERVO_VERTICAL_MIN, SUN_SERVO_VERTICAL_MAX);
 }
 
 function formatTime(value: string | null, index: number) {
@@ -175,10 +185,11 @@ function VerticalAxisControl({
   busy: boolean;
   onChange: (value: number) => void;
 }) {
-  const visualValue = clamp(value, 0, 180);
+  const visualValue = clamp(value, SUN_SERVO_VERTICAL_MIN, SUN_SERVO_VERTICAL_MAX);
   const minY = 145;
   const maxY = 35;
-  const y = minY - (visualValue / 180) * (minY - maxY);
+  const range = SUN_SERVO_VERTICAL_MAX - SUN_SERVO_VERTICAL_MIN;
+  const y = minY - ((visualValue - SUN_SERVO_VERTICAL_MIN) / range) * (minY - maxY);
 
   const updateFromPointer = (
     event:
@@ -189,9 +200,10 @@ function VerticalAxisControl({
 
     const rect = event.currentTarget.getBoundingClientRect();
     const pointerY = ((event.clientY - rect.top) / rect.height) * 178;
-    const next = Math.round(((minY - pointerY) / (minY - maxY)) * 180);
+    const fraction = (minY - pointerY) / (minY - maxY);
+    const next = Math.round(SUN_SERVO_VERTICAL_MIN + fraction * range);
 
-    onChange(clampServo(next));
+    onChange(clampServoVertical(next));
   };
 
   return (
@@ -220,7 +232,7 @@ function VerticalAxisControl({
               type="text"
               value={visualValue}
               disabled={disabled}
-              onChange={(event) => onChange(clampServo(Number(event.target.value)))}
+              onChange={(event) => onChange(clampServoVertical(Number(event.target.value)))}
               className="w-[54px] h-9 rounded-xl border border-slate-200 bg-slate-50 text-center text-slate-900 text-lg font-black outline-none focus:border-blue-400 disabled:cursor-not-allowed"
             />
           )}
@@ -241,13 +253,13 @@ function VerticalAxisControl({
         }}
       >
         <text x="105" y="150" className="fill-slate-400 text-xs font-bold">
-          0°
+          10°
         </text>
         <text x="100" y="94" className="fill-slate-400 text-xs font-bold">
-          90°
+          45°
         </text>
-        <text x="95" y="38" className="fill-slate-400 text-xs font-bold">
-          180°
+        <text x="105" y="38" className="fill-slate-400 text-xs font-bold">
+          80°
         </text>
 
         <line
@@ -297,14 +309,14 @@ function HorizontalAxisControl({
   busy: boolean;
   onChange: (value: number) => void;
 }) {
-  const visualValue = clamp(value, 0, 180);
+  const visualValue = clamp(value, SUN_SERVO_HORIZONTAL_MIN, SUN_SERVO_HORIZONTAL_MAX);
 
   const center = { x: 150, y: 126 };
   const radius = 66;
-  const visualAngle = 180 - visualValue;
+  const visualAngle = visualValue;
   const dot = polarToCartesian(center.x, center.y, radius, visualAngle);
-  const fullArc = describeArc(center.x, center.y, radius, 180, 0, 1);
-  const activeArc = describeArc(center.x, center.y, radius, 180, visualAngle, 1);
+  const fullArc = describeArc(center.x, center.y, radius, SUN_SERVO_HORIZONTAL_MAX, SUN_SERVO_HORIZONTAL_MIN, 1);
+  const activeArc = describeArc(center.x, center.y, radius, SUN_SERVO_HORIZONTAL_MAX, visualAngle, 1);
 
   const updateFromPointer = (event: React.PointerEvent<SVGSVGElement>) => {
     if (disabled) return;
@@ -317,11 +329,11 @@ function HorizontalAxisControl({
     const dy = center.y - y;
 
     let angle = (Math.atan2(dy, dx) * 180) / Math.PI;
-    angle = clamp(angle, 0, 180);
+    angle = clamp(angle, SUN_SERVO_HORIZONTAL_MIN, SUN_SERVO_HORIZONTAL_MAX);
 
-    const next = Math.round(180 - angle);
+    const next = Math.round(angle);
 
-    onChange(clampServo(next));
+    onChange(clampServoHorizontal(next));
   };
 
   return (
@@ -350,7 +362,7 @@ function HorizontalAxisControl({
               type="text"
               value={visualValue}
               disabled={disabled}
-              onChange={(event) => onChange(clampServo(Number(event.target.value)))}
+              onChange={(event) => onChange(clampServoHorizontal(Number(event.target.value)))}
               className="w-[54px] h-9 rounded-xl border border-slate-200 bg-slate-50 text-center text-slate-900 text-lg font-black outline-none focus:border-blue-400 disabled:cursor-not-allowed"
             />
           )}
@@ -371,13 +383,13 @@ function HorizontalAxisControl({
         }}
       >
         <text x="38" y="131" className="fill-slate-400 text-xs font-bold">
-          0°
+          170°
         </text>
         <text x="145" y="46" className="fill-slate-400 text-xs font-bold">
           90°
         </text>
         <text x="252" y="131" className="fill-slate-400 text-xs font-bold">
-          180°
+          10°
         </text>
 
         <path
@@ -441,7 +453,7 @@ export function SunTrackerPage() {
   };
 
   const setServo = (servo: "vertical" | "horizontal", value: number) => {
-    const safeAngle = clampServo(value);
+    const safeAngle = servo === "vertical" ? clampServoVertical(value) : clampServoHorizontal(value);
 
     setBusy(servo);
     sendSunServo(servo, safeAngle);

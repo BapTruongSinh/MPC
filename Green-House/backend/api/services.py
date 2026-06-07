@@ -85,12 +85,6 @@ def mark_esp32_online(device_code: str = 'esp32-main'):
 def mark_device_offline(device_code: str = 'esp32-main'):
     """Đánh dấu ESP32 đã offline (xóa khỏi RAM cache)."""
     _esp32_last_seen.pop(device_code, None)
-    Alert.objects.create(
-        level=Alert.Level.ERROR,
-        device_code=device_code,
-        title=f'{device_code} offline',
-        message=f'WebSocket connection from {device_code} disconnected.',
-    )
 
 
 def is_esp32_online(device_code: str = 'esp32-main') -> bool:
@@ -194,13 +188,6 @@ def sync_sensor_alerts(payload: dict, device_code: str = 'esp32-main'):
     previous_errors = metadata.get('sensor_errors') or {}
     current_errors = _clean_sensor_errors(payload.get('sensor_errors'))
 
-    sensor_titles = {
-        'dht': 'Cảm biến DHT lỗi',
-        'soil': 'Cảm biến độ ẩm đất lỗi',
-        'light': 'Cảm biến ánh sáng lỗi',
-        'gas': 'Cảm biến khí lỗi',
-    }
-
     changed = False
 
     for sensor_name, current_value in current_errors.items():
@@ -212,27 +199,103 @@ def sync_sensor_alerts(payload: dict, device_code: str = 'esp32-main'):
 
         changed = True
 
-        if current_value:
-            Alert.objects.create(
-                level=Alert.Level.ERROR,
-                device_code=device_code,
-                title=f'{sensor_name} sensor error',
-                message=f'{sensor_name} sensor on {device_code} is missing data or returning invalid values.',
-            )
-        else:
-            Alert.objects.create(
-                level=Alert.Level.SUCCESS,
-                device_code=device_code,
-                title=f'{sensor_name} sensor recovered',
-                message=f'{sensor_name} sensor on {device_code} has recovered.',
-            )
-
     if bool(current_errors.get('dht', False)):
         _force_manual_mode('dht_sensor_error')
 
     if changed:
         metadata['sensor_errors'] = current_errors
         state.extra = metadata
+        state.save(update_fields=['extra', 'updated_at'])
+
+ALERT_PERSISTENCE_SECONDS = 300
+MANUAL_IDLE_SECONDS = 3600
+
+def check_environmental_alerts(payload: dict, device_code: str = 'esp32-main'):
+    state, _ = DeviceState.objects.get_or_create(device_code=device_code)
+    extra = state.extra or {}
+    tracking = extra.get('alert_tracking') or {}
+    
+    now = timezone.now().timestamp()
+    changed = False
+
+    temp = payload.get('temperature')
+    if temp is not None:
+        try:
+            temp = float(temp)
+            if temp > 40.0 or temp < 10.0:
+                if 'temp_alert_start' not in tracking:
+                    tracking['temp_alert_start'] = now
+                    changed = True
+                elif not tracking.get('temp_alert_sent'):
+                    if now - tracking['temp_alert_start'] >= ALERT_PERSISTENCE_SECONDS:
+                        Alert.objects.create(
+                            level=Alert.Level.WARNING,
+                            device_code=device_code,
+                            title='Cảnh báo Nhiệt độ cực đoan',
+                            message=f'Nhiệt độ hiện tại là {temp}°C, kéo dài liên tục quá {ALERT_PERSISTENCE_SECONDS//60} phút.',
+                        )
+                        tracking['temp_alert_sent'] = True
+                        changed = True
+            else:
+                if 'temp_alert_start' in tracking:
+                    tracking.pop('temp_alert_start', None)
+                    tracking.pop('temp_alert_sent', None)
+                    changed = True
+        except (ValueError, TypeError):
+            pass
+
+    soil = payload.get('soil_moisture')
+    device_states = payload.get('device_states') or {}
+    pump_on = _to_bool(device_states.get('pump_on', False))
+    
+    if soil is not None:
+        try:
+            soil = float(soil)
+            if soil < 15.0 and not pump_on:
+                if 'soil_alert_start' not in tracking:
+                    tracking['soil_alert_start'] = now
+                    changed = True
+                elif not tracking.get('soil_alert_sent'):
+                    if now - tracking['soil_alert_start'] >= ALERT_PERSISTENCE_SECONDS:
+                        Alert.objects.create(
+                            level=Alert.Level.ERROR,
+                            device_code=device_code,
+                            title='Cảnh báo Đất khô hạn',
+                            message=f'Độ ẩm đất là {soil}%. Đất rất khô nhưng máy bơm chưa bật trong {ALERT_PERSISTENCE_SECONDS//60} phút qua.',
+                        )
+                        tracking['soil_alert_sent'] = True
+                        changed = True
+            else:
+                if 'soil_alert_start' in tracking:
+                    tracking.pop('soil_alert_start', None)
+                    tracking.pop('soil_alert_sent', None)
+                    changed = True
+        except (ValueError, TypeError):
+            pass
+
+    control, _ = ControlState.objects.get_or_create(singleton_key='main')
+    if control.mode == ControlState.Mode.MANUAL and control.manual_changed_at:
+        idle_seconds = now - control.manual_changed_at.timestamp()
+        if idle_seconds >= MANUAL_IDLE_SECONDS:
+            if not tracking.get('manual_idle_alert_sent'):
+                Alert.objects.create(
+                    level=Alert.Level.WARNING,
+                    device_code=device_code,
+                    title='Quên bật chế độ AUTO',
+                    message=f'Hệ thống đang ở chế độ thủ công (MANUAL) hơn {MANUAL_IDLE_SECONDS//60} phút mà không có thao tác nào. Bạn có quên bật lại AUTO không?',
+                )
+                tracking['manual_idle_alert_sent'] = True
+                changed = True
+        else:
+            if tracking.pop('manual_idle_alert_sent', None):
+                changed = True
+    else:
+        if tracking.pop('manual_idle_alert_sent', None):
+            changed = True
+
+    if changed:
+        extra['alert_tracking'] = tracking
+        state.extra = extra
         state.save(update_fields=['extra', 'updated_at'])
 
 
@@ -280,6 +343,7 @@ def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
 
     sync_control_mode_from_payload(payload)
     sync_sensor_alerts(payload, device_code=device_code)
+    check_environmental_alerts(payload, device_code=device_code)
 
     # Đồng bộ trạng thái thiết bị từ device_states
     state_map = {

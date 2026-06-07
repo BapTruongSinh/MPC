@@ -231,10 +231,17 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         setConnected(true);
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setConnected(false);
         socketRef.current = null;
         ws = null;
+
+        if (event.code === 4003) {
+          localStorage.removeItem("access_token");
+          localStorage.removeItem("refresh_token");
+          window.location.href = "/";
+          return;
+        }
 
         if (!manuallyClosed) {
           if (reconnectTimer) {
