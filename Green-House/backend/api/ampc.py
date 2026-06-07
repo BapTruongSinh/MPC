@@ -412,12 +412,14 @@ def _queue_pump_command(audit: AMPCRecommendation) -> AMPCRecommendation:
         audit.save(update_fields=['actuator_status', 'updated_at'])
         return audit
 
+    is_on = audit.pump_seconds > 0
     command = enqueue_device_command(
         device_code='pump',
-        command='pump_seconds',
-        value=str(round(audit.pump_seconds, 3)),
+        command='set_power',
+        value='on' if is_on else 'off',
         payload={
             'source': 'ampc',
+            'duration': round(audit.pump_seconds, 3) if is_on else 0,
             'recommendation_id': audit.id,
             'step_seconds': audit.step_seconds,
             'safety_status': audit.safety_status,

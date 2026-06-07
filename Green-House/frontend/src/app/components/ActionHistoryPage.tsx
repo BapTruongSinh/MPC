@@ -10,6 +10,8 @@ import {
   XCircle,
   Clock,
   Timer,
+  Bot,
+  User,
 } from "lucide-react";
 import { apiClient } from "../api/client";
 
@@ -67,6 +69,13 @@ function formatDuration(payload: any) {
   const sec = payload.duration;
   if (sec < 60) return `${sec} giây`;
   return `${Math.round(sec / 60)} phút`;
+}
+
+function getCommandSource(row: DeviceCommand) {
+  if (row.payload && row.payload.source === 'ampc') {
+    return { label: "Hệ thống MPC", icon: Bot, color: "text-purple-700", bg: "bg-purple-50", border: "border-purple-200" };
+  }
+  return { label: "Người dùng", icon: User, color: "text-blue-700", bg: "bg-blue-50", border: "border-blue-200" };
 }
 
 export function ActionHistoryPage() {
@@ -200,6 +209,15 @@ export function ActionHistoryPage() {
                     style={{ fontSize: "14px", fontWeight: 700 }}
                   >
                     <div className="flex items-center gap-2">
+                      <Bot className="w-4 h-4 text-pink-600" />
+                      Nguồn
+                    </div>
+                  </th>
+                  <th
+                    className="text-left px-5 py-4 text-slate-700"
+                    style={{ fontSize: "14px", fontWeight: 700 }}
+                  >
+                    <div className="flex items-center gap-2">
                       <Timer className="w-4 h-4 text-emerald-600" />
                       Hẹn giờ tự tắt
                     </div>
@@ -258,6 +276,21 @@ export function ActionHistoryPage() {
                         >
                           {formatCommand(row.command, row.value)}
                         </span>
+                      </td>
+
+                      <td className="px-5 py-4">
+                        {(() => {
+                          const src = getCommandSource(row);
+                          const Icon = src.icon;
+                          return (
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-semibold border ${src.bg} ${src.color} ${src.border}`}
+                            >
+                              <Icon className="w-4 h-4" />
+                              {src.label}
+                            </span>
+                          );
+                        })()}
                       </td>
 
                       <td className="px-5 py-4">
