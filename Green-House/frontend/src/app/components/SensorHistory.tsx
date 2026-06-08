@@ -79,32 +79,8 @@ function getStatusColor(
   value: number | null | undefined,
   type: "temperature" | "humidity" | "light" | "soilMoisture"
 ) {
-  if (value === null || value === undefined) return "text-slate-500";
-
-  if (type === "temperature") {
-    if (value < 20 || value > 32) return "text-red-600";
-    if (value < 22 || value > 30) return "text-yellow-600";
-    return "text-green-600";
-  }
-
-  if (type === "humidity") {
-    if (value < 50 || value > 80) return "text-red-600";
-    if (value < 55 || value > 75) return "text-yellow-600";
-    return "text-green-600";
-  }
-
-  if (type === "light") {
-    if (value < 20 || value > 90) return "text-yellow-600";
-    return "text-green-600";
-  }
-
-  if (type === "soilMoisture") {
-    if (value < 55 || value > 75) return "text-red-600";
-    if (value < 60 || value > 72) return "text-yellow-600";
-    return "text-green-600";
-  }
-
-  return "text-slate-600";
+  if (value === null || value === undefined) return "text-slate-400";
+  return "text-slate-900";
 }
 
 async function fetchSensorHistory(params: {
@@ -234,12 +210,11 @@ export function SensorHistory() {
       if (!allRows.length) return;
 
       const csvContent = [
-        ["Thời gian", "Nhiệt độ (°C)", "Độ ẩm KK (%)", "Ánh sáng (%)", "Độ ẩm đất (%)"],
+        ["Thời gian", "Nhiệt độ (°C)", "Độ ẩm KK (%)", "Độ ẩm đất (%)"],
         ...allRows.map((row) => [
           row.recorded_at ? new Date(row.recorded_at).toLocaleString("vi-VN") : "--",
           row.temperature != null ? Number(row.temperature).toFixed(1) : "",
           row.humidity != null ? Number(row.humidity).toFixed(1) : "",
-          row.light != null ? Number(row.light).toFixed(1) : "",
           row.soil_moisture != null ? Number(row.soil_moisture).toFixed(1) : "",
         ]),
       ]
@@ -426,15 +401,7 @@ export function SensorHistory() {
                       Độ ẩm KK
                     </div>
                   </th>
-                  <th
-                    className="text-center px-5 py-4 text-slate-700"
-                    style={{ fontSize: "12px", fontWeight: 700 }}
-                  >
-                    <div className="flex items-center justify-center gap-2">
-                      <Sun className="w-4 h-4 text-yellow-600" />
-                      Ánh sáng
-                    </div>
-                  </th>
+
                   <th
                     className="text-center px-5 py-4 text-slate-700"
                     style={{ fontSize: "12px", fontWeight: 700 }}
@@ -503,14 +470,7 @@ export function SensorHistory() {
                         </span>
                       </td>
 
-                      <td className="px-5 py-4 text-center">
-                        <span
-                          className={`font-semibold ${getStatusColor(row.light, "light")}`}
-                          style={{ fontSize: "14px" }}
-                        >
-                          {formatMetric(row.light, "%")}
-                        </span>
-                      </td>
+
 
                       <td className="px-5 py-4 text-center">
                         <span

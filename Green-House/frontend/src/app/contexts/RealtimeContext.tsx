@@ -7,6 +7,8 @@ import type {
   GreenhouseStatePacket,
   SensorErrors,
   SensorReading,
+  SunTrackerMode,
+  SunTrackerState,
 } from "../lib/greenhouse.types";
 
 export type DashboardOverview = {
@@ -29,8 +31,12 @@ type RealtimeContextType = {
   sensorErrors: SensorErrors;
   connected: boolean;
   lastUpdated: Date | null;
+  sunTracker: SunTrackerState;
+  sunChartHistory: SunTrackerState[];
   sendMode: (mode: "AUTO" | "MANUAL") => void;
-  sendDeviceControl: (device: "fan" | "pump" | "light" | "mist", state: "ON" | "OFF") => void;
+  sendDeviceControl: (device: "fan" | "pump" | "light" | "mist", state: "ON" | "OFF", durationSeconds?: number) => void;
+  sendSunMode: (mode: SunTrackerMode) => void;
+  sendSunServo: (servo: "vertical" | "horizontal", angle: number) => void;
   markAlertRead: (id: number) => void;
   markAllAlertsRead: () => void;
 };
@@ -43,6 +49,7 @@ const WS_URL =
 
 const MAX_CHART_POINTS = 20;
 const RECONNECT_DELAY = 1500;
+const MAX_SUN_CHART_POINTS = 20;
 
 function formatUptime(updatedAt?: string | null) {
   if (!updatedAt) return "—";
@@ -61,6 +68,38 @@ const defaultSensorErrors: SensorErrors = {
   light: false,
   gas: false,
 };
+
+const defaultSunTracker: SunTrackerState = {
+  mode: "sun_manual",
+  ldr_lt: 0,
+  ldr_rt: 0,
+  ldr_ld: 0,
+  ldr_rd: 0,
+  servo_vertical: 90,
+  servo_horizontal: 90,
+  updated_at: null,
+};
+
+function normalizeSunTracker(value: Partial<SunTrackerState> | null | undefined): SunTrackerState {
+  return {
+    ...defaultSunTracker,
+    ...(value ?? {}),
+    mode: value?.mode === "sun_auto" ? "sun_auto" : "sun_manual",
+    ldr_lt: Number(value?.ldr_lt ?? 0),
+    ldr_rt: Number(value?.ldr_rt ?? 0),
+    ldr_ld: Number(value?.ldr_ld ?? 0),
+    ldr_rd: Number(value?.ldr_rd ?? 0),
+    servo_vertical: Number(value?.servo_vertical ?? 90),
+    servo_horizontal: Number(value?.servo_horizontal ?? 90),
+    updated_at: value?.updated_at ?? null,
+  };
+}
+
+function appendSunReading(prev: SunTrackerState[], reading: SunTrackerState) {
+  const last = prev[prev.length - 1];
+  if (last && last.updated_at === reading.updated_at) return prev;
+  return [...prev, reading].slice(-MAX_SUN_CHART_POINTS);
+}
 
 function makePlaceholderReading(index: number): SensorReading {
   return {
@@ -119,6 +158,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const [sensorErrors, setSensorErrors] = useState<SensorErrors>(defaultSensorErrors);
   const [connected, setConnected] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [sunTracker, setSunTracker] = useState<SunTrackerState>(defaultSunTracker);
+  const [sunChartHistory, setSunChartHistory] = useState<SunTrackerState[]>([]);
 
   const rebuildOverview = (
     nextLatest: SensorReading | null,
@@ -148,12 +189,15 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     const nextAlerts = payload.alerts ?? [];
     const nextControl = payload.control;
     const nextSensorErrors = payload.sensor_errors ?? defaultSensorErrors;
+    const nextSunTracker = normalizeSunTracker(payload.sun_tracker);
 
     setLatest(nextLatest);
     setDevices(nextDevices);
     setAlerts(nextAlerts);
     setSensorErrors(nextSensorErrors);
+    setSunTracker(nextSunTracker);
     setChartHistory((prev) => appendReading(prev, nextLatest));
+    setSunChartHistory((prev) => appendSunReading(prev, nextSunTracker));
 
     rebuildOverview(
       nextLatest,
@@ -187,10 +231,17 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         setConnected(true);
       };
 
-      ws.onclose = () => {
+      ws.onclose = (event) => {
         setConnected(false);
         socketRef.current = null;
         ws = null;
+
+        if (event.code === 4003) {
+          localStorage.removeItem("access_token");
+          localStorage.removeItem("refresh_token");
+          window.location.href = "/";
+          return;
+        }
 
         if (!manuallyClosed) {
           if (reconnectTimer) {
@@ -261,11 +312,25 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       sensorErrors,
       connected,
       lastUpdated,
+      sunTracker,
+      sunChartHistory,
       sendMode: (mode) => {
         sendRaw({ type: "mode", value: mode });
       },
-      sendDeviceControl: (device, state) => {
-        sendRaw({ type: "device_control", device, state });
+      sendDeviceControl: (device, state, duration) => {
+        sendRaw({ type: "device_control", device, state, duration });
+      },
+      sendSunMode: (mode) => {
+        setSunTracker((prev) => ({ ...prev, mode }));
+        sendRaw({ type: "sun_mode", mode });
+      },
+      sendSunServo: (servo, angle) => {
+        const safeAngle = Math.max(0, Math.min(180, Math.round(angle)));
+        setSunTracker((prev) => ({
+          ...prev,
+          [servo === "vertical" ? "servo_vertical" : "servo_horizontal"]: safeAngle,
+        }));
+        sendRaw({ type: "sun_servo_control", servo, angle: safeAngle });
       },
       markAlertRead: (id) => {
         setAlerts((prev) => {
@@ -302,7 +367,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         sendRaw({ type: "alert_mark_all_read" });
       },
     }),
-    [overview, latest, devices, alerts, chartHistory, sensorErrors, connected, lastUpdated]
+    [overview, latest, devices, alerts, chartHistory, sensorErrors, connected, lastUpdated, sunTracker, sunChartHistory]
   );
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;

@@ -12,14 +12,12 @@ from .models import (
     Alert,
     ControlProfile,
     ControlState,
-    Device,
     DeviceCommand,
     DeviceState,
     EstimationCycle,
     EvaluationSummary,
     ExperimentRun,
     FAO56_SOIL_PRESETS,
-    Greenhouse,
     GreenhouseControlProfile,
     SensorData,
 )
@@ -307,44 +305,34 @@ class LoginSerializer(TokenObtainPairSerializer):
 
 
 class DeviceStateSerializer(serializers.ModelSerializer):
+    device_type = serializers.CharField(source='device_code')
+    status = serializers.SerializerMethodField()
+    state = serializers.SerializerMethodField()
+    name = serializers.SerializerMethodField()
+    code = serializers.CharField(source='device_code')
+
     class Meta:
         model = DeviceState
-        fields = ["is_on", "desired_on", "last_command", "last_value", "extra", "updated_at"]
+        fields = ["id", "name", "code", "device_type", "status", "state", "device_code", "is_on", "desired_on", "last_command", "last_value", "extra", "updated_at"]
 
-
-class DeviceSerializer(serializers.ModelSerializer):
-    state = serializers.SerializerMethodField()
-    zone = serializers.SerializerMethodField()
-    zone_name = serializers.SerializerMethodField()
-    uid = serializers.CharField(source="code", read_only=True)
-
-    class Meta:
-        model = Device
-        fields = [
-            "id",
-            "zone",
-            "zone_name",
-            "name",
-            "uid",
-            "code",
-            "device_type",
-            "status",
-            "is_enabled",
-            "firmware_version",
-            "last_seen_at",
-            "metadata",
-            "state",
-        ]
-
+    def get_status(self, obj):
+        from .services import is_esp32_online
+        return 'online' if is_esp32_online() else 'offline'
+        
     def get_state(self, obj):
-        state, _ = DeviceState.objects.get_or_create(device=obj)
-        return DeviceStateSerializer(state).data
+        return {
+            'is_on': obj.is_on,
+            'updated_at': obj.updated_at
+        }
 
-    def get_zone(self, obj):
-        return getattr(settings, "APP_ZONE_ID", 1)
-
-    def get_zone_name(self, obj):
-        return getattr(settings, "APP_ZONE_NAME", "Nhà kính chính")
+    def get_name(self, obj):
+        names = {
+            'fan': 'Quạt thông gió',
+            'light': 'Đèn chiếu sáng',
+            'pump': 'Bơm tưới nước',
+            'mist': 'Máy phun sương',
+        }
+        return names.get(obj.device_code, obj.device_code)
 
 
 class SensorDataSerializer(serializers.ModelSerializer):
@@ -361,28 +349,16 @@ class SensorDataSerializer(serializers.ModelSerializer):
         ]
 
 
-class GreenhouseSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Greenhouse
-        fields = ["id", "name", "location", "is_active", "notes", "created_at", "updated_at"]
-
-
 class RunListSerializer(serializers.ModelSerializer):
-    greenhouse_id = serializers.IntegerField(read_only=True)
-    greenhouse_name = serializers.CharField(source="greenhouse.name", read_only=True, default="")
-
     class Meta:
         model = ExperimentRun
-        fields = ["id", "name", "run_type", "status", "greenhouse_id", "greenhouse_name", "created_at"]
+        fields = ["id", "name", "run_type", "status", "created_at"]
 
 
 class CycleSerializer(serializers.ModelSerializer):
-    greenhouse_id = serializers.IntegerField(read_only=True)
-
     class Meta:
         model = EstimationCycle
         fields = [
-            "greenhouse_id",
             "cycle_index",
             "slice_type",
             "sample_ts",
@@ -435,12 +411,9 @@ class ControlStateSerializer(serializers.ModelSerializer):
 
 
 class AMPCSchedulerStateSerializer(serializers.ModelSerializer):
-    greenhouse_id = serializers.IntegerField(read_only=True)
-
     class Meta:
         model = AMPCSchedulerState
         fields = [
-            "greenhouse_id",
             "is_enabled",
             "interval_seconds",
             "is_executing",
@@ -462,7 +435,6 @@ class EstimationCycleSerializer(serializers.ModelSerializer):
             "sample_ts",
             "cycle_index",
             "run_id",
-            "greenhouse_id",
             "slice_type",
             "source_type",
             "validation_status",
@@ -542,7 +514,6 @@ class GreenhouseControlProfileSerializer(serializers.ModelSerializer):
         model = GreenhouseControlProfile
         fields = [
             "id",
-            "greenhouse_id",
             "crop_name",
             "crop_kc",
             *FAO56_PHYSICAL_FIELDS,
@@ -569,7 +540,7 @@ class GreenhouseControlProfileSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "greenhouse_id", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
     def validate(self, attrs):
         attrs = _apply_soil_preset(attrs)
@@ -629,7 +600,6 @@ class LegacyAMPCRecommendationSerializer(serializers.ModelSerializer):
         model = AMPCRecommendation
         fields = [
             "id",
-            "greenhouse_id",
             "mode",
             "state_cycle_id",
             "run_id",
@@ -675,7 +645,6 @@ class LiveSampleSerializer(serializers.Serializer):
 
 class IngestReadingSerializer(serializers.Serializer):
     recorded_at = serializers.DateTimeField(required=False)
-    greenhouse_id = serializers.IntegerField(required=False)
     soil_moisture = serializers.FloatField(required=False, allow_null=True)
     temperature = serializers.FloatField(required=False, allow_null=True)
     humidity = serializers.FloatField(required=False, allow_null=True)
@@ -714,29 +683,7 @@ class IngestReadingSerializer(serializers.Serializer):
         return validate_json_finite(value, "device_states")
 
 
-class IngestHeartbeatSerializer(serializers.Serializer):
-    firmware_version = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=DEVICE_FIRMWARE_MAX_LENGTH,
-    )
-    metadata = serializers.DictField(required=False)
-    uptime_ms = serializers.IntegerField(required=False, allow_null=True)
-    free_heap = serializers.IntegerField(required=False, allow_null=True)
-    sensor_errors = serializers.DictField(required=False)
-    auto_mode = serializers.BooleanField(required=False)
-    mode = serializers.CharField(required=False, allow_blank=True)
-    manual_reason = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        max_length=MANUAL_REASON_MAX_LENGTH,
-    )
 
-    def validate_metadata(self, value):
-        return validate_json_finite(value, "metadata")
-
-    def validate_sensor_errors(self, value):
-        return validate_json_finite(_validate_sensor_error_keys(value), "sensor_errors")
 
 
 class ControlModeInputSerializer(serializers.Serializer):
@@ -787,7 +734,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "id",
             "zone",
             "zone_name",
-            "device",
+            "device_code",
             "device_name",
             "level",
             "title",
@@ -803,17 +750,14 @@ class AlertSerializer(serializers.ModelSerializer):
         return getattr(settings, "APP_ZONE_NAME", "Nhà kính chính")
 
     def get_device_name(self, obj):
-        return obj.device.name if obj.device else ""
+        return obj.device_code or ''
 
 
 class DeviceCommandSerializer(serializers.ModelSerializer):
-    device_code = serializers.CharField(source="device.code", read_only=True)
-
     class Meta:
         model = DeviceCommand
         fields = [
             "id",
-            "device",
             "device_code",
             "command",
             "value",

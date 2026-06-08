@@ -4,8 +4,6 @@ from datetime import datetime
 from pathlib import Path
 
 from django.conf import settings
-from django.contrib.auth import get_user_model
-from django.http import Http404
 from django.db.models import Sum
 from django.utils import timezone
 
@@ -30,11 +28,9 @@ from .models import (
     AMPCRecommendation,
     ControlProfile,
     ControlState,
-    Device,
     DeviceCommand,
     EstimationCycle,
     ExperimentRun,
-    Greenhouse,
     GreenhouseControlProfile,
     SensorData,
 )
@@ -46,34 +42,11 @@ def get_control_profile() -> ControlProfile:
     return profile
 
 
-def default_greenhouse(user=None) -> Greenhouse:
-    queryset = Greenhouse.objects.filter(is_active=True)
-    if user is not None and getattr(user, 'is_authenticated', False):
-        queryset = queryset.filter(owner=user)
-    greenhouse = queryset.order_by('id').first()
-    if greenhouse is not None:
-        return greenhouse
-
-    owner = user if user is not None and getattr(user, 'is_authenticated', False) else get_user_model().objects.order_by('id').first()
-    if owner is None:
-        owner = get_user_model().objects.create_user(username='local_admin')
-    return Greenhouse.objects.create(owner=owner, name='Main greenhouse', is_active=True)
-
-
-def get_greenhouse_for_user(user, greenhouse_id: int) -> Greenhouse:
-    queryset = Greenhouse.objects.filter(pk=greenhouse_id, is_active=True)
-    if user is not None and getattr(user, 'is_authenticated', False):
-        queryset = queryset.filter(owner=user)
-    greenhouse = queryset.first()
-    if greenhouse is None:
-        raise Http404('greenhouse_not_found_or_forbidden')
-    return greenhouse
-
-
-def get_greenhouse_control_profile(greenhouse: Greenhouse) -> GreenhouseControlProfile:
+def get_greenhouse_control_profile() -> GreenhouseControlProfile:
+    """Singleton GreenhouseControlProfile — không cần greenhouse FK."""
     legacy = get_control_profile()
     profile, _ = GreenhouseControlProfile.objects.get_or_create(
-        greenhouse=greenhouse,
+        singleton_key='main',
         defaults={
             'crop_name': legacy.crop_name,
             'crop_kc': legacy.crop_kc,
@@ -154,7 +127,6 @@ def profile_to_config(
 
 def profile_snapshot(profile: ControlProfile | GreenhouseControlProfile) -> dict:
     return {
-        'greenhouse_id': getattr(profile, 'greenhouse_id', None),
         'crop_name': profile.crop_name,
         'crop_kc': profile.crop_kc,
         'latitude': getattr(profile, 'latitude', None),
@@ -191,32 +163,21 @@ def profile_snapshot(profile: ControlProfile | GreenhouseControlProfile) -> dict
     }
 
 
-def _latest_control_state(greenhouse: Greenhouse | None = None) -> ControlState:
-    if greenhouse is None:
-        control, _ = ControlState.objects.get_or_create(singleton_key='main')
-        return control
-    control, _ = ControlState.objects.get_or_create(
-        greenhouse=greenhouse,
-        defaults={'singleton_key': ControlState.singleton_key_for_greenhouse(greenhouse.id)},
-    )
+def _latest_control_state() -> ControlState:
+    control, _ = ControlState.objects.get_or_create(singleton_key='main')
     return control
 
 
-def _latest_pump_seconds(greenhouse: Greenhouse | None = None) -> float:
-    queryset = AMPCRecommendation.objects
-    if greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
-    latest = queryset.order_by('-created_at', '-id').first()
+def _latest_pump_seconds() -> float:
+    latest = AMPCRecommendation.objects.order_by('-created_at', '-id').first()
     return float(latest.pump_seconds) if latest else 0.0
 
 
-def _used_today_pump_seconds(now: datetime, greenhouse: Greenhouse | None = None) -> float:
+def _used_today_pump_seconds(now: datetime) -> float:
     day = timezone.localtime(now).date()
-    queryset = AMPCRecommendation.objects.filter(created_at__date=day, safety_status='safe')
-    if greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
     total = (
-        queryset
+        AMPCRecommendation.objects
+        .filter(created_at__date=day, safety_status='safe')
         .aggregate(total=Sum('pump_seconds'))
         .get('total')
     )
@@ -270,12 +231,9 @@ def _plant_record_from_cycle(cycle: EstimationCycle) -> PlantRecord:
     )
 
 
-def _history(limit: int, greenhouse: Greenhouse | None = None) -> tuple[PlantRecord, ...]:
-    queryset = EstimationCycle.objects
-    if greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
+def _history(limit: int) -> tuple[PlantRecord, ...]:
     cycles = (
-        queryset
+        EstimationCycle.objects
         .exclude(kf_x_posterior__isnull=True)
         .exclude(raw_temperature__isnull=True)
         .exclude(raw_humidity__isnull=True)
@@ -285,14 +243,11 @@ def _history(limit: int, greenhouse: Greenhouse | None = None) -> tuple[PlantRec
     return tuple(_plant_record_from_cycle(cycle) for cycle in reversed(list(cycles)))
 
 
-def _bias_state(profile: ControlProfile | GreenhouseControlProfile, now: datetime, greenhouse: Greenhouse | None = None) -> BiasState:
+def _bias_state(profile: ControlProfile | GreenhouseControlProfile, now: datetime) -> BiasState:
     if not profile.adaptive_enabled:
         return BiasState()
-    queryset = EstimationCycle.objects
-    if greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
     cycles = (
-        queryset
+        EstimationCycle.objects
         .exclude(arx_predicted__isnull=True)
         .exclude(kf_x_posterior__isnull=True)
         .order_by('-sample_ts', '-id')[:profile.adaptive_bias_window]
@@ -320,7 +275,6 @@ def _state_snapshot(
     snapshot = {
         'estimation_id': estimation.id,
         'run_id': estimation.run_id,
-        'greenhouse_id': estimation.greenhouse_id,
         'timestamp': state.timestamp.isoformat(),
         'kf_x_posterior': estimation.kf_x_posterior,
         'kf_R': estimation.kf_R,
@@ -377,7 +331,6 @@ def _bounded_ampc_recommendation_text(field_name: str, value) -> str:
 def _invalid_config_audit(
     *,
     profile: ControlProfile | GreenhouseControlProfile,
-    greenhouse: Greenhouse | None,
     used_today: float,
     reason: str,
 ) -> AMPCRecommendation:
@@ -391,7 +344,6 @@ def _invalid_config_audit(
         state=None,
         bias=BiasState(),
         used_today=used_today,
-        greenhouse=greenhouse,
         sensor_data=None,
         actuator_status=(
             AMPCRecommendation.ActuatorStatus.UNSAFE_SKIPPED
@@ -416,18 +368,16 @@ def _persist_recommendation(
     state: ControllerState | None,
     bias: BiasState,
     used_today: float,
-    greenhouse: Greenhouse | None = None,
     run: ExperimentRun | None = None,
     sensor_data: SensorData | None = None,
     actuator_status: str = AMPCRecommendation.ActuatorStatus.NOT_CALLED,
     et0_result: ET0Reading | ET0Failure | None = None,
 ) -> AMPCRecommendation:
-    control = _latest_control_state(greenhouse)
+    control = _latest_control_state()
     safety_status = _bounded_ampc_recommendation_text('safety_status', recommendation.safety_status)
     reason = _bounded_ampc_recommendation_text('reason', recommendation.reason)
     return AMPCRecommendation.objects.create(
         sensor_data=sensor_data,
-        greenhouse=greenhouse,
         run=run,
         estimation=estimation,
         mode=control.mode,
@@ -462,21 +412,14 @@ def _queue_pump_command(audit: AMPCRecommendation) -> AMPCRecommendation:
         audit.save(update_fields=['actuator_status', 'updated_at'])
         return audit
 
-    pumps = Device.objects.filter(device_type=Device.DeviceType.PUMP, is_enabled=True)
-    if audit.greenhouse_id is not None:
-        pumps = pumps.filter(greenhouse_id=audit.greenhouse_id)
-    pump = pumps.first()
-    if pump is None:
-        audit.actuator_status = AMPCRecommendation.ActuatorStatus.DEVICE_NOT_FOUND
-        audit.save(update_fields=['actuator_status', 'updated_at'])
-        return audit
-
+    is_on = audit.pump_seconds > 0
     command = enqueue_device_command(
-        device=pump,
-        command='pump_seconds',
-        value=str(round(audit.pump_seconds, 3)),
+        device_code='pump',
+        command='set_power',
+        value='on' if is_on else 'off',
         payload={
             'source': 'ampc',
+            'duration': round(audit.pump_seconds, 3) if is_on else 0,
             'recommendation_id': audit.id,
             'step_seconds': audit.step_seconds,
             'safety_status': audit.safety_status,
@@ -486,20 +429,17 @@ def _queue_pump_command(audit: AMPCRecommendation) -> AMPCRecommendation:
     audit.command_created = True
     audit.actuator_status = AMPCRecommendation.ActuatorStatus.QUEUED
     audit.save(update_fields=['device_command', 'command_created', 'actuator_status', 'updated_at'])
-    notify_pending_commands(greenhouse=audit.greenhouse)
+    notify_pending_commands()
     return audit
 
 
 def run_auto_recommendation(
     *,
     create_command_if_auto: bool = True,
-    user=None,
-    greenhouse_id: int | None = None,
 ) -> AMPCRecommendation:
-    greenhouse = get_greenhouse_for_user(user, greenhouse_id) if greenhouse_id is not None else default_greenhouse(user)
-    profile = get_greenhouse_control_profile(greenhouse)
+    profile = get_greenhouse_control_profile()
     now = timezone.now()
-    used_today = _used_today_pump_seconds(now, greenhouse)
+    used_today = _used_today_pump_seconds(now)
     bias = BiasState()
     et0_result: ET0Reading | ET0Failure | None = None
     try:
@@ -507,16 +447,15 @@ def run_auto_recommendation(
     except ValueError as exc:
         return _invalid_config_audit(
             profile=profile,
-            greenhouse=greenhouse,
             used_today=used_today,
             reason=f'invalid_fao_config:{exc}',
         )
 
-    latest = latest_estimation(greenhouse=greenhouse)
+    latest = latest_estimation()
     if latest is None:
-        reading = SensorData.objects.filter(greenhouse=greenhouse).order_by('-recorded_at', '-id').first()
+        reading = SensorData.objects.order_by('-recorded_at', '-id').first()
         if reading is not None:
-            latest = ensure_estimation_for_reading(reading, greenhouse=greenhouse)
+            latest = ensure_estimation_for_reading(reading)
 
     if latest is None:
         recommendation = _fail_recommendation(config, 'model_error', 'missing_estimation')
@@ -528,7 +467,6 @@ def run_auto_recommendation(
             state=None,
             bias=bias,
             used_today=used_today,
-            greenhouse=greenhouse,
             sensor_data=None,
             actuator_status=(
                 AMPCRecommendation.ActuatorStatus.UNSAFE_SKIPPED
@@ -537,7 +475,7 @@ def run_auto_recommendation(
             ),
         )
 
-    sensor_data = SensorData.objects.filter(greenhouse=greenhouse, recorded_at=latest.sample_ts).order_by('-id').first()
+    sensor_data = SensorData.objects.filter(recorded_at=latest.sample_ts).order_by('-id').first()
     use_raw_fallback = _uses_raw_fallback(latest)
     state = ControllerState(
         timestamp=latest.sample_ts,
@@ -547,15 +485,11 @@ def run_auto_recommendation(
         temperature=latest.raw_temperature,
         humidity=latest.raw_humidity,
         light=latest.raw_light,
-        last_pump_seconds=_latest_pump_seconds(greenhouse),
+        last_pump_seconds=_latest_pump_seconds(),
         run_id=latest.run_id,
     )
 
-    et0_result = get_hourly_et0(
-        greenhouse,
-        now,
-        step_seconds=config.step_seconds,
-    )
+    et0_result = get_hourly_et0(now, step_seconds=config.step_seconds)
     if isinstance(et0_result, ET0Failure):
         recommendation = _fail_recommendation(
             config,
@@ -570,7 +504,6 @@ def run_auto_recommendation(
             state=state,
             bias=bias,
             used_today=used_today,
-            greenhouse=greenhouse,
             run=latest.run,
             sensor_data=sensor_data,
             actuator_status=(
@@ -580,7 +513,7 @@ def run_auto_recommendation(
             ),
             et0_result=et0_result,
         )
-        control = _latest_control_state(greenhouse)
+        control = _latest_control_state()
         if create_command_if_auto and profile.actuator_enabled and control.mode == ControlState.Mode.AUTO:
             return _queue_pump_command(audit)
         return audit
@@ -590,7 +523,6 @@ def run_auto_recommendation(
     except ValueError as exc:
         return _invalid_config_audit(
             profile=profile,
-            greenhouse=greenhouse,
             used_today=used_today,
             reason=f'invalid_fao_config:{exc}',
         )
@@ -600,8 +532,8 @@ def run_auto_recommendation(
             Path(settings.ARX_MODEL_PATH),
             pump_limits=config.pump,
         )
-        history = _history(max(plant.min_history_len, config.horizon_steps + plant.min_history_len), greenhouse)
-        bias = _bias_state(profile, now, greenhouse)
+        history = _history(max(plant.min_history_len, config.horizon_steps + plant.min_history_len))
+        bias = _bias_state(profile, now)
         plant_model = (
             BiasCorrectedPlantModel(
                 plant,
@@ -630,14 +562,13 @@ def run_auto_recommendation(
         state=state,
         bias=bias,
         used_today=used_today,
-        greenhouse=greenhouse,
         run=latest.run,
         sensor_data=sensor_data,
         actuator_status=AMPCRecommendation.ActuatorStatus.DISABLED if not profile.actuator_enabled else AMPCRecommendation.ActuatorStatus.NOT_CALLED,
         et0_result=et0_result,
     )
 
-    control = _latest_control_state(greenhouse)
+    control = _latest_control_state()
     if create_command_if_auto and profile.actuator_enabled and control.mode == ControlState.Mode.AUTO:
         return _queue_pump_command(audit)
     return audit
@@ -645,7 +576,3 @@ def run_auto_recommendation(
 
 def latest_recommendation() -> AMPCRecommendation | None:
     return AMPCRecommendation.objects.order_by('-created_at', '-id').first()
-
-
-def latest_recommendation_for_greenhouse(greenhouse: Greenhouse) -> AMPCRecommendation | None:
-    return AMPCRecommendation.objects.filter(greenhouse=greenhouse).order_by('-created_at', '-id').first()

@@ -1,17 +1,11 @@
 from django.contrib import admin
-from .models import Alert, Device, DeviceCommand, DeviceState, SensorData
-
-
-@admin.register(Device)
-class DeviceAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'code', 'device_type', 'status', 'is_enabled', 'last_seen_at')
-    search_fields = ('name', 'code')
-    list_filter = ('device_type', 'status', 'is_enabled')
+from .models import Alert, DeviceCommand, DeviceState, SensorData
 
 
 @admin.register(DeviceState)
 class DeviceStateAdmin(admin.ModelAdmin):
-    list_display = ('device', 'is_on', 'desired_on', 'last_command', 'updated_at')
+    list_display = ('device_code', 'is_on', 'desired_on', 'last_command', 'updated_at')
+    search_fields = ('device_code',)
 
 
 @admin.register(SensorData)
@@ -22,11 +16,12 @@ class SensorDataAdmin(admin.ModelAdmin):
 
 @admin.register(Alert)
 class AlertAdmin(admin.ModelAdmin):
-    list_display = ('id', 'level', 'title', 'is_read', 'happened_at', 'device')
+    list_display = ('id', 'level', 'title', 'is_read', 'happened_at', 'device_code')
     list_filter = ('level', 'is_read')
 
 
 @admin.register(DeviceCommand)
 class DeviceCommandAdmin(admin.ModelAdmin):
-    list_display = ('id', 'device', 'command', 'value', 'status', 'created_at', 'acked_at')
-    list_filter = ('status', 'device')
+    list_display = ('id', 'device_code', 'command', 'value', 'status', 'created_at', 'acked_at')
+    list_filter = ('status', 'device_code')
+    search_fields = ('device_code', 'command')

@@ -15,7 +15,7 @@ from kalman.ingestion import (
 )
 from kalman.prediction import ARXPredictionAdapter
 
-from .models import Device, DeviceState, EstimationCycle, ExperimentRun, Greenhouse, SensorData
+from .models import DeviceState, EstimationCycle, ExperimentRun, SensorData
 
 
 def _float_or_none(value) -> float | None:
@@ -24,19 +24,13 @@ def _float_or_none(value) -> float | None:
     return float(value)
 
 
-def _latest_device_flag(device_type: str, *, greenhouse: Greenhouse | None = None) -> float:
-    queryset = DeviceState.objects.filter(device__device_type=device_type)
-    if greenhouse is not None:
-        queryset = queryset.filter(device__greenhouse=greenhouse)
-    state = (
-        queryset
-        .order_by('-updated_at', '-id')
-        .first()
-    )
+def _latest_device_flag(device_code: str) -> float:
+    """Lấy trạng thái bật/tắt mới nhất từ DeviceState theo device_code."""
+    state = DeviceState.objects.filter(device_code=device_code).first()
     return 1.0 if state and state.is_on else 0.0
 
 
-def raw_record_from_reading(reading: SensorData, *, row_index: int, greenhouse: Greenhouse | None = None) -> RawRecord:
+def raw_record_from_reading(reading: SensorData, *, row_index: int) -> RawRecord:
     payload = reading.payload or {}
     return RawRecord(
         timestamp=reading.recorded_at,
@@ -44,9 +38,9 @@ def raw_record_from_reading(reading: SensorData, *, row_index: int, greenhouse: 
         temperature=_float_or_none(reading.temperature),
         humidity=_float_or_none(reading.humidity),
         light=_float_or_none(reading.light),
-        drip=_float_or_none(payload.get('drip')) if 'drip' in payload else _latest_device_flag(Device.DeviceType.PUMP, greenhouse=greenhouse),
-        fan=_float_or_none(payload.get('fan')) if 'fan' in payload else _latest_device_flag(Device.DeviceType.FAN, greenhouse=greenhouse),
-        mist=_float_or_none(payload.get('mist')) if 'mist' in payload else _latest_device_flag(Device.DeviceType.MIST, greenhouse=greenhouse),
+        drip=_float_or_none(payload.get('drip')) if 'drip' in payload else _latest_device_flag('pump'),
+        fan=_float_or_none(payload.get('fan')) if 'fan' in payload else _latest_device_flag('fan'),
+        mist=_float_or_none(payload.get('mist')) if 'mist' in payload else _latest_device_flag('mist'),
         row_index=row_index,
     )
 
@@ -97,10 +91,8 @@ def _processed_from_cycle(cycle: EstimationCycle) -> ProcessedRecord:
     return preprocess_single(raw, validation)
 
 
-def _recent_processed_history(limit: int, *, greenhouse: Greenhouse | None = None, run: ExperimentRun | None = None) -> list[ProcessedRecord]:
+def _recent_processed_history(limit: int, *, run: ExperimentRun | None = None) -> list[ProcessedRecord]:
     queryset = EstimationCycle.objects
-    if greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
     if run is not None:
         queryset = queryset.filter(run=run)
     cycles = (
@@ -118,12 +110,9 @@ def _recent_processed_history(limit: int, *, greenhouse: Greenhouse | None = Non
 def _restore_estimator_state(
     estimator: AdaptiveKalmanCycle,
     *,
-    greenhouse: Greenhouse | None = None,
     run: ExperimentRun | None = None,
 ) -> int:
     queryset = EstimationCycle.objects
-    if greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
     if run is not None:
         queryset = queryset.filter(run=run)
     latest = queryset.order_by('-cycle_index', '-id').first()
@@ -148,28 +137,24 @@ def _restore_estimator_state(
 def ensure_estimation_for_reading(
     reading: SensorData,
     *,
-    greenhouse: Greenhouse | None = None,
     run: ExperimentRun | None = None,
 ) -> EstimationCycle:
-    greenhouse = greenhouse or reading.greenhouse
     run_key = run.id if run is not None else 'sensor'
     ingest_dedupe_key = f"live|{run_key}|{reading.recorded_at.astimezone().isoformat()}"
     existing_query = EstimationCycle.objects.filter(ingest_dedupe_key=ingest_dedupe_key)
     if run is not None:
         existing_query = existing_query.filter(run=run)
-    if greenhouse is not None:
-        existing_query = existing_query.filter(greenhouse=greenhouse)
     existing = existing_query.first()
     if existing is not None:
         return existing
 
     adapter = _prediction_adapter()
     estimator = AdaptiveKalmanCycle(_live_kalman_config(reading), adapter=adapter)
-    cycle_index = _restore_estimator_state(estimator, greenhouse=greenhouse, run=run)
+    cycle_index = _restore_estimator_state(estimator, run=run)
     min_history = getattr(adapter, 'min_history_len', 0) if adapter is not None else 0
-    estimator._history = _recent_processed_history(max(min_history, 12), greenhouse=greenhouse, run=run)  # noqa: SLF001
+    estimator._history = _recent_processed_history(max(min_history, 12), run=run)  # noqa: SLF001
 
-    raw = raw_record_from_reading(reading, row_index=cycle_index, greenhouse=greenhouse)
+    raw = raw_record_from_reading(reading, row_index=cycle_index)
     validation = validate_live_record(raw)
     processed = preprocess_single(raw, validation)
     result = estimator.step(processed, cycle_index=cycle_index)
@@ -179,7 +164,6 @@ def ensure_estimation_for_reading(
         sample_ts=result.timestamp,
         cycle_index=result.cycle_index,
         run=run,
-        greenhouse=greenhouse,
         slice_type='online',
         source_type='live',
         validation_status=validation.status,
@@ -208,12 +192,9 @@ def ensure_estimation_for_reading(
     )
 
 
-def latest_estimation(*, greenhouse: Greenhouse | None = None) -> EstimationCycle | None:
-    queryset = EstimationCycle.objects
-    if greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
+def latest_estimation() -> EstimationCycle | None:
     return (
-        queryset
+        EstimationCycle.objects
         .exclude(kf_x_posterior__isnull=True)
         .order_by('-sample_ts', '-id')
         .first()
