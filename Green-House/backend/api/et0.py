@@ -14,7 +14,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
-from .models import Greenhouse, GreenhouseControlProfile
+from .models import GreenhouseControlProfile
 
 
 logger = logging.getLogger(__name__)
@@ -33,7 +33,6 @@ class OpenMeteoError(Exception):
 
 @dataclass(frozen=True)
 class ET0Reading:
-    greenhouse_id: int | None
     requested_hour: datetime
     et0_hour_mm: float
     et0_step_mm: float
@@ -44,7 +43,6 @@ class ET0Reading:
 
 @dataclass(frozen=True)
 class ET0Failure:
-    greenhouse_id: int | None
     requested_hour: datetime
     reason: str
     detail: str
@@ -102,7 +100,6 @@ class OpenMeteoClient:
 
 
 def get_hourly_et0(
-    greenhouse: Greenhouse,
     when: datetime,
     *,
     step_seconds: int,
@@ -111,20 +108,18 @@ def get_hourly_et0(
 ) -> ET0Result:
     requested_hour = _hour_bucket(when)
     current_time = _aware_utc(now or timezone.now())
-    greenhouse_id = getattr(greenhouse, 'id', None)
 
     try:
-        latitude, longitude = _greenhouse_coordinates(greenhouse)
+        latitude, longitude = _greenhouse_coordinates()
         step_seconds = _validate_step_seconds(step_seconds)
     except ValueError as exc:
         return ET0Failure(
-            greenhouse_id=greenhouse_id,
             requested_hour=requested_hour,
             reason='invalid_et0_config',
             detail=str(exc),
         )
 
-    exact_key = _hour_cache_key(greenhouse_id, latitude, longitude, requested_hour)
+    exact_key = _hour_cache_key(latitude, longitude, requested_hour)
     cached = cache.get(exact_key)
     if cached is not None:
         try:
@@ -145,14 +140,12 @@ def get_hourly_et0(
         logger.warning(
             'open_meteo_et0_failure',
             extra={
-                'greenhouse_id': greenhouse_id,
                 'requested_hour': requested_hour.isoformat(),
                 'reason': exc.__class__.__name__,
                 'detail': str(exc),
             },
         )
         fallback = _recent_cache_reading(
-            greenhouse_id,
             latitude,
             longitude,
             requested_hour,
@@ -162,29 +155,25 @@ def get_hourly_et0(
         if fallback is not None:
             return fallback
         return ET0Failure(
-            greenhouse_id=greenhouse_id,
             requested_hour=requested_hour,
             reason='open_meteo_et0_unavailable',
             detail=str(exc),
         )
 
     entry = {
-        'greenhouse_id': greenhouse_id,
         'requested_hour': requested_hour.isoformat(),
         'et0_hour_mm': et0_hour,
         'fetched_at': current_time.isoformat(),
     }
     cache_ttl = _cache_ttl_seconds()
     cache.set(exact_key, entry, cache_ttl)
-    cache.set(_recent_cache_key(greenhouse_id, latitude, longitude), entry, cache_ttl)
+    cache.set(_recent_cache_key(latitude, longitude), entry, cache_ttl)
     return _reading_from_cache(entry, requested_hour, step_seconds, source='open_meteo')
 
 
-def _greenhouse_coordinates(greenhouse: Greenhouse) -> tuple[float, float]:
-    try:
-        profile = greenhouse.control_profile
-    except GreenhouseControlProfile.DoesNotExist:
-        profile, _ = GreenhouseControlProfile.objects.get_or_create(greenhouse=greenhouse)
+def _greenhouse_coordinates() -> tuple[float, float]:
+    """Lấy toạ độ từ singleton GreenhouseControlProfile."""
+    profile, _ = GreenhouseControlProfile.objects.get_or_create(singleton_key='main')
     latitude = _finite_float('latitude', profile.latitude)
     longitude = _finite_float('longitude', profile.longitude)
     if not -90.0 <= latitude <= 90.0:
@@ -227,7 +216,6 @@ def _reading_from_cache(
         raise ValueError('et0_negative')
     fetched_at = _parse_cached_datetime(entry.get('fetched_at'))
     return ET0Reading(
-        greenhouse_id=entry.get('greenhouse_id'),
         requested_hour=requested_hour,
         et0_hour_mm=et0_hour,
         et0_step_mm=et0_hour * step_seconds / 3600.0,
@@ -238,14 +226,13 @@ def _reading_from_cache(
 
 
 def _recent_cache_reading(
-    greenhouse_id: int | None,
     latitude: float,
     longitude: float,
     requested_hour: datetime,
     step_seconds: int,
     current_time: datetime,
 ) -> ET0Reading | None:
-    entry = cache.get(_recent_cache_key(greenhouse_id, latitude, longitude))
+    entry = cache.get(_recent_cache_key(latitude, longitude))
     if entry is None:
         return None
     try:
@@ -298,15 +285,14 @@ def _parse_cached_datetime(value: Any) -> datetime:
     return _aware_utc(parsed)
 
 
-def _hour_cache_key(greenhouse_id: int | None, latitude: float, longitude: float, requested_hour: datetime) -> str:
+def _hour_cache_key(latitude: float, longitude: float, requested_hour: datetime) -> str:
     return (
-        f'et0:open-meteo:gh:{greenhouse_id or "none"}:'
-        f'lat:{latitude:.4f}:lon:{longitude:.4f}:hour:{requested_hour:%Y%m%dT%H%MZ}'
+        f'et0:open-meteo:lat:{latitude:.4f}:lon:{longitude:.4f}:hour:{requested_hour:%Y%m%dT%H%MZ}'
     )
 
 
-def _recent_cache_key(greenhouse_id: int | None, latitude: float, longitude: float) -> str:
-    return f'et0:open-meteo:gh:{greenhouse_id or "none"}:lat:{latitude:.4f}:lon:{longitude:.4f}:recent'
+def _recent_cache_key(latitude: float, longitude: float) -> str:
+    return f'et0:open-meteo:lat:{latitude:.4f}:lon:{longitude:.4f}:recent'
 
 
 def _cache_ttl_seconds() -> int:

@@ -10,7 +10,7 @@ from datetime import timedelta
 from django.db import OperationalError, ProgrammingError, close_old_connections, transaction
 from django.utils import timezone
 
-from .ampc import default_greenhouse, run_auto_recommendation
+from .ampc import run_auto_recommendation
 from .models import AMPCSchedulerState
 
 logger = logging.getLogger(__name__)
@@ -24,38 +24,20 @@ _thread_started = False
 _thread_lock = threading.Lock()
 
 
-def _scheduler_key_for_greenhouse(greenhouse_id: int) -> str:
-    max_length = AMPCSchedulerState._meta.get_field('singleton_key').max_length
-    legacy_key = f'greenhouse:{greenhouse_id}'
-    if len(legacy_key) <= max_length:
-        return legacy_key
-    return f'gh:{int(greenhouse_id):x}'
-
-
-def get_scheduler_state(user=None, greenhouse=None) -> AMPCSchedulerState:
-    if greenhouse is None and user is not None:
-        greenhouse = default_greenhouse(user)
-
-    key = _scheduler_key_for_greenhouse(greenhouse.id) if greenhouse is not None else SCHEDULER_KEY
+def get_scheduler_state() -> AMPCSchedulerState:
     state, _ = AMPCSchedulerState.objects.get_or_create(
-        singleton_key=key,
+        singleton_key=SCHEDULER_KEY,
         defaults={
-            'greenhouse': greenhouse,
             'interval_seconds': DEFAULT_INTERVAL_SECONDS,
             'is_enabled': False,
         },
     )
-    if greenhouse is not None and state.greenhouse_id != greenhouse.id:
-        state.greenhouse = greenhouse
-        state.save(update_fields=['greenhouse', 'updated_at'])
     return state
 
 
-def start_scheduler(user=None) -> AMPCSchedulerState:
-    greenhouse = default_greenhouse(user)
+def start_scheduler() -> AMPCSchedulerState:
     now = timezone.now()
-    state = get_scheduler_state(greenhouse=greenhouse)
-    state.greenhouse = greenhouse
+    state = get_scheduler_state()
     state.is_enabled = True
     state.is_executing = False
     state.interval_seconds = state.interval_seconds or DEFAULT_INTERVAL_SECONDS
@@ -63,7 +45,6 @@ def start_scheduler(user=None) -> AMPCSchedulerState:
     state.next_run_at = now
     state.last_error = ''
     state.save(update_fields=[
-        'greenhouse',
         'is_enabled',
         'is_executing',
         'interval_seconds',
@@ -75,9 +56,9 @@ def start_scheduler(user=None) -> AMPCSchedulerState:
     return state
 
 
-def stop_scheduler(user=None) -> AMPCSchedulerState:
+def stop_scheduler() -> AMPCSchedulerState:
     now = timezone.now()
-    state = get_scheduler_state(user=user)
+    state = get_scheduler_state()
     state.is_enabled = False
     state.is_executing = False
     state.last_stopped_at = now
@@ -131,14 +112,11 @@ def run_due_once(*, force: bool = False, state_id: int | None = None) -> AMPCSch
     status = ''
     error = ''
     try:
-        recommendation = run_auto_recommendation(
-            create_command_if_auto=True,
-            greenhouse_id=state.greenhouse_id,
-        )
+        recommendation = run_auto_recommendation(create_command_if_auto=True)
         status = recommendation.safety_status
         if recommendation.safety_status != 'safe':
             error = recommendation.reason or recommendation.safety_status
-    except Exception as exc:  # pragma: no cover - verified through service boundary behavior.
+    except Exception as exc:  # pragma: no cover
         logger.exception('AMPC scheduler run failed')
         status = 'error'
         error = str(exc)

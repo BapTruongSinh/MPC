@@ -6,9 +6,12 @@ import { DeviceControl } from "./components/DeviceControl";
 import { SensorChart } from "./components/SensorChart";
 import { SensorHistory } from "./components/SensorHistory";
 import { AutoSettings } from "./components/AutoSettings";
+import { TelegramSettings } from "./components/TelegramSettings";
 import { StatusBar } from "./components/StatusBar";
 import { Alerts } from "./components/Alerts";
 import { ForecastPage } from "./components/ForecastPage";
+import { SunTrackerPage } from "./components/SunTrackerPage";
+import { ActionHistoryPage } from "./components/ActionHistoryPage";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { LoginPage } from "./pages/LoginPage";
 import { RealtimeProvider, useRealtime } from "./contexts/RealtimeContext";
@@ -35,9 +38,9 @@ function Dashboard() {
               {activeMenu === "sensors" && "Quản lý cảm biến"}
               {activeMenu === "history" && "Lịch sử cảm biến"}
               {activeMenu === "forecast" && "Dự báo sắp tới"}
-              {activeMenu === "devices" && "Điều khiển thiết bị"}
+              {activeMenu === "suntracker" && "SunTracker"}
               {activeMenu === "zones" && "Quản lý khu vực"}
-              {activeMenu === "charts" && "Biểu đồ & Báo cáo"}
+              {activeMenu === "action-history" && "Lịch sử thao tác"}
               {activeMenu === "alerts" && "Cảnh báo hệ thống"}
               {activeMenu === "settings" && "Cài đặt hệ thống"}
               {activeMenu === "help" && "Trợ giúp"}
@@ -49,33 +52,33 @@ function Dashboard() {
           <div className="space-y-5">
             <StatusBar overview={overview} />
 
-            <section>
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-1 h-5 section-kicker rounded-full"></div>
-                <h3 className="text-slate-700" style={{ fontSize: "14px", fontWeight: 700 }}>
-                  Dữ liệu cảm biến
-                </h3>
-                <span
-                  className="flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full border border-blue-100"
-                  style={{ fontSize: "10px", fontWeight: 700 }}
-                >
-                  <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse-soft"></span>
-                  Live
-                </span>
-              </div>
-              <SensorCards data={latest} sensorErrors={sensorErrors} />
-            </section>
-
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-              <div className="xl:col-span-2">
+              <div className="xl:col-span-2 space-y-5">
+                <section>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-1 h-5 section-kicker rounded-full"></div>
+                    <h3 className="text-slate-700" style={{ fontSize: "14px", fontWeight: 700 }}>
+                      Dữ liệu cảm biến
+                    </h3>
+                    <span
+                      className="flex items-center gap-1 px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full border border-blue-100"
+                      style={{ fontSize: "10px", fontWeight: 700 }}
+                    >
+                      <span className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-pulse-soft"></span>
+                      Live
+                    </span>
+                  </div>
+                  <SensorCards data={latest} sensorErrors={sensorErrors} />
+                </section>
+
                 <SensorChart />
               </div>
-              <div className="xl:col-span-1">
+              <div className="xl:col-span-1 mt-[32px]">
                 <DeviceControl control={overview?.control ?? null} />
               </div>
             </div>
 
-            <AutoSettings />
+
           </div>
         )}
 
@@ -90,14 +93,15 @@ function Dashboard() {
 
         {activeMenu === "forecast" && <ForecastPage />}
 
-        {activeMenu === "devices" && (
-          <div className="max-w-lg">
-            <DeviceControl control={overview?.control ?? null} />
+        {activeMenu === "suntracker" && <SunTrackerPage />}
+
+        {activeMenu === "action-history" && <ActionHistoryPage />}
+        {activeMenu === "settings" && (
+          <div className="space-y-5">
+            <AutoSettings />
+            <TelegramSettings />
           </div>
         )}
-
-        {activeMenu === "charts" && <SensorChart />}
-        {activeMenu === "settings" && <AutoSettings />}
         {activeMenu === "alerts" && <Alerts />}
 
         {(activeMenu === "zones" || activeMenu === "help") && (

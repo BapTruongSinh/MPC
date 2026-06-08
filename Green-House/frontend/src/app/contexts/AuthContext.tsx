@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import { createContext, useContext, useState, useCallback, ReactNode, useEffect } from "react";
 import { authLogin } from "../api/endpoints";
 
 interface AuthContextType {
@@ -26,6 +26,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem("refresh_token");
     setIsAuthenticated(false);
   }, []);
+
+  useEffect(() => {
+    const handleAuthError = () => {
+      logout();
+    };
+    window.addEventListener("auth_error", handleAuthError);
+    return () => window.removeEventListener("auth_error", handleAuthError);
+  }, [logout]);
 
   return (
     <AuthContext.Provider value={{ isAuthenticated, login, logout }}>

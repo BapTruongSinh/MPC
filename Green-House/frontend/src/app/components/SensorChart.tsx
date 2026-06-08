@@ -23,7 +23,6 @@ interface ChartDataPoint {
 const sensors = [
   { key: "temperature", label: "Nhiệt độ (°C)", color: "#f97316" },
   { key: "humidity", label: "Độ ẩm KK (%)", color: "#2563eb" },
-  { key: "light", label: "Ánh sáng (%)", color: "#eab308" },
   { key: "soil_moisture", label: "Độ ẩm đất (%)", color: "#8b5cf6" },
 ] as const;
 
@@ -60,7 +59,6 @@ export function SensorChart() {
   const [activeSensors, setActiveSensors] = useState<string[]>([
     "temperature",
     "humidity",
-    "light",
     "soil_moisture",
   ]);
 
