@@ -360,10 +360,28 @@ def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
     recorded_at = parse_datetime(recorded_raw) if isinstance(recorded_raw, str) else recorded_raw
     recorded_at = recorded_at or timezone.now()
 
+    # Tính toán giá trị light từ 4 LDR nếu có (lấy giá trị max)
+    light_val = payload.get('light')
+    sun = sensor_payload.get('sun_tracker')
+    if isinstance(sun, dict) and any(k in sun for k in ('ldr_lt', 'ldr_rt', 'ldr_ld', 'ldr_rd')):
+        def _coerce_ldr(v):
+            try:
+                return float(v) if v is not None and v != '' else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+        light_val = max(
+            _coerce_ldr(sun.get('ldr_lt')),
+            _coerce_ldr(sun.get('ldr_rt')),
+            _coerce_ldr(sun.get('ldr_ld')),
+            _coerce_ldr(sun.get('ldr_rd')),
+        )
+
+    sensor_payload['device_states'] = device_states
+
     reading = SensorData.objects.create(
         temperature=payload.get('temperature'),
         humidity=payload.get('humidity'),
-        light=payload.get('light'),
+        light=light_val,
         soil_moisture=payload.get('soil_moisture'),
         payload=sensor_payload,
         recorded_at=recorded_at,

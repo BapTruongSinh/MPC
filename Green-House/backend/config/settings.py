@@ -127,7 +127,6 @@ KALMAN_TEST_DB_NAME = os.getenv('KALMAN_TEST_DB_NAME', 'kalman_greenhouse')
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '')
 
-# Dev-friendly channel layer. Sau này scale nhiều process thì đổi sang Redis.
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels.layers.InMemoryChannelLayer',
