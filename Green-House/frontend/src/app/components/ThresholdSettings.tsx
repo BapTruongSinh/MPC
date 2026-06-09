@@ -57,8 +57,19 @@ const GROUPS: ThresholdGroup[] = [
   },
 ];
 
+type DraftValues = Record<ThresholdKey, string>;
+
+function toStringDraft(vals: Omit<ESP32Thresholds, "updated_at">): DraftValues {
+  return Object.fromEntries(
+    Object.entries(vals).map(([k, v]) => [k, String(v)])
+  ) as DraftValues;
+}
+
 export function ThresholdSettings() {
-  const [draft, setDraft] = useState<Omit<ESP32Thresholds, "updated_at"> | null>(null);
+  // Lưu numeric values (source of truth khi save)
+  const [saved, setSaved] = useState<Omit<ESP32Thresholds, "updated_at"> | null>(null);
+  // Lưu string values cho input (để user gõ tự do không bị reset về 0)
+  const [draft, setDraft] = useState<DraftValues | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
@@ -70,7 +81,8 @@ export function ThresholdSettings() {
       .then((res) => {
         if (!cancelled) {
           const { updated_at, ...rest } = res.data;
-          setDraft(rest);
+          setSaved(rest);
+          setDraft(toStringDraft(rest));
         }
       })
       .catch(() => { if (!cancelled) setError("Không tải được ngưỡng điều khiển."); })
@@ -78,19 +90,44 @@ export function ThresholdSettings() {
     return () => { cancelled = true; };
   }, []);
 
+  // Khi user gõ: chỉ cập nhật string draft, không convert sang number ngay
   const handleChange = (key: ThresholdKey, value: string) => {
-    const num = parseFloat(value);
-    setDraft((prev) => prev ? { ...prev, [key]: isNaN(num) ? 0 : num } : prev);
+    setDraft((prev) => prev ? { ...prev, [key]: value } : prev);
+  };
+
+  // Khi user rời input: clamp/validate và sync lại string nếu cần
+  const handleBlur = (key: ThresholdKey, row: ThresholdRow) => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const num = parseFloat(prev[key]);
+      if (isNaN(num)) {
+        // Trả về giá trị đã lưu trước đó (tránh để trống)
+        const fallback = saved ? String(saved[key]) : "0";
+        return { ...prev, [key]: fallback };
+      }
+      const clamped = Math.min(row.max, Math.max(row.min, num));
+      return { ...prev, [key]: String(clamped) };
+    });
   };
 
   const save = async () => {
-    if (!draft) return;
+    if (!draft || !saved) return;
+
+    // Chuyển draft string → number để gửi lên server
+    const payload = Object.fromEntries(
+      Object.entries(draft).map(([k, v]) => {
+        const num = parseFloat(v);
+        return [k, isNaN(num) ? (saved as any)[k] : num];
+      })
+    ) as Omit<ESP32Thresholds, "updated_at">;
+
     setSaving(true);
     setMessage(""); setError("");
     try {
-      const res = await updateThresholds(draft);
+      const res = await updateThresholds(payload);
       const { updated_at, ...rest } = res.data;
-      setDraft(rest);
+      setSaved(rest);
+      setDraft(toStringDraft(rest));
       setMessage("Đã lưu và gửi xuống ESP32!");
     } catch (err: any) {
       const detail = err?.response?.data;
@@ -107,13 +144,13 @@ export function ThresholdSettings() {
 
   if (loading) return (
     <div className="elevated-card rounded-3xl p-5">
-      <p className="text-slate-500" style={{ fontSize: "13px" }}>Đang tải...</p>
+      <p className="text-slate-500" style={{ fontSize: "14px" }}>Đang tải...</p>
     </div>
   );
 
   if (!draft) return (
     <div className="elevated-card rounded-3xl p-5">
-      <p className="text-red-700" style={{ fontSize: "13px", fontWeight: 700 }}>
+      <p className="text-red-700" style={{ fontSize: "14px", fontWeight: 700 }}>
         {error || "Không tải được ngưỡng điều khiển."}
       </p>
     </div>
@@ -124,7 +161,7 @@ export function ThresholdSettings() {
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
-          <p className="text-slate-800" style={{ fontSize: "15px", fontWeight: 800 }}>
+          <p className="text-slate-800" style={{ fontSize: "16px", fontWeight: 800 }}>
             Ngưỡng điều khiển tự động
           </p>
         </div>
@@ -132,7 +169,7 @@ export function ThresholdSettings() {
           onClick={save}
           disabled={saving}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-white gradient-action hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-60 disabled:translate-y-0 shadow-md"
-          style={{ fontSize: "13px", fontWeight: 700 }}
+          style={{ fontSize: "14px", fontWeight: 700 }}
         >
           <Save className="w-4 h-4" />
           {saving ? "Đang lưu..." : "Lưu"}
@@ -152,19 +189,19 @@ export function ThresholdSettings() {
                 className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                 style={{ backgroundColor: group.dot }}
               />
-              <span className="text-slate-700" style={{ fontSize: "13px", fontWeight: 700 }}>
+              <span className="text-slate-700" style={{ fontSize: "14px", fontWeight: 700 }}>
                 {group.title}
               </span>
             </div>
 
             {/* Rows */}
-            <div className="space-y-2">
+            <div className="space-y-2.5">
               {group.rows.map((row) => (
                 <div key={row.key} className="flex items-center gap-3">
                   <label
                     htmlFor={`thresh-${row.key}`}
                     className="flex-1 text-slate-600 min-w-0"
-                    style={{ fontSize: "12px" }}
+                    style={{ fontSize: "13px" }}
                   >
                     {row.label}
                   </label>
@@ -177,10 +214,11 @@ export function ThresholdSettings() {
                       max={row.max}
                       step={row.step}
                       onChange={(e) => handleChange(row.key, e.target.value)}
-                      className="w-20 px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-right outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
-                      style={{ fontSize: "13px" }}
+                      onBlur={() => handleBlur(row.key, row)}
+                      className="w-22 px-2 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-900 text-right outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
+                      style={{ fontSize: "14px", width: "5.5rem" }}
                     />
-                    <span className="text-slate-400 w-10 text-left" style={{ fontSize: "11px" }}>
+                    <span className="text-slate-400 w-12 text-left" style={{ fontSize: "12px" }}>
                       {row.unit}
                     </span>
                   </div>
@@ -199,7 +237,7 @@ export function ThresholdSettings() {
               ? "bg-red-50 border-red-100 text-red-700"
               : "bg-emerald-50 border-emerald-100 text-emerald-700"
           }`}
-          style={{ fontSize: "13px", fontWeight: 600 }}
+          style={{ fontSize: "14px", fontWeight: 600 }}
         >
           {error
             ? <AlertCircle className="w-4 h-4 flex-shrink-0" />

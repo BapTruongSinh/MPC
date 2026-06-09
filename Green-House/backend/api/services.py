@@ -101,6 +101,10 @@ def _telemetry_payload_snapshot(payload: dict) -> dict:
     snapshot['sensor_errors'] = payload.get('sensor_errors') or {}
     snapshot['metadata'] = payload.get('metadata') or {}
 
+    sun_tracker = payload.get('sun_tracker')
+    if isinstance(sun_tracker, dict):
+        snapshot['sun_tracker'] = sun_tracker
+
     for field in ('mode', 'auto_mode', 'firmware_version'):
         if field in payload:
             snapshot[field] = payload[field]
@@ -145,8 +149,6 @@ def send_telegram_alert(title: str, message: str):
     full_message = f"🚨 *{title}*\n{message}"
     threading.Thread(target=_do_send_telegram, args=(full_message,), daemon=True).start()
 
-
-# ── ESP32 online/offline theo RAM (thay vì DB Device) ──
 
 def mark_esp32_online(device_code: str = 'esp32-main'):
     """Cập nhật thời gian last_seen cho ESP32 trong RAM."""

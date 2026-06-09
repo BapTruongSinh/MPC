@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Save } from "lucide-react";
 
 import type { ControlProfile, FaoSoilType } from "../api/endpoints";
@@ -18,7 +18,6 @@ import {
 } from "./autoSettingsConfig";
 import type { AutoSettingsNumericField } from "./autoSettingsConfig";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import {
   Select,
@@ -29,9 +28,17 @@ import {
 } from "./ui/select";
 import { Switch } from "./ui/switch";
 
-function toNumber(value: string): number {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : 0;
+// Chuyển số thành string để khởi tạo draft input
+function toInputString(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  return String(value);
+}
+
+// Lấy số từ string (trả về undefined nếu rỗng/invalid để giữ nguyên)
+function parseInputNumber(value: string): number | undefined {
+  if (value.trim() === "") return undefined;
+  const n = parseFloat(value);
+  return isFinite(n) ? n : undefined;
 }
 
 function fieldTestId(field: string): string {
@@ -40,11 +47,13 @@ function fieldTestId(field: string): string {
 
 export type AutoSettingsFormProps = {
   profile: ControlProfile;
+  stringDraft?: Record<string, string>;
   saving: boolean;
   message: string;
   error: string;
   onSave: () => void;
   onNumberChange: (field: AutoSettingsNumericField, value: string) => void;
+  onNumberBlur?: (field: AutoSettingsNumericField) => void;
   onSoilTypeChange: (soilType: FaoSoilType) => void;
   onActuatorEnabledChange: (checked: boolean) => void;
 };
@@ -81,8 +90,42 @@ export function AutoSettings() {
     };
   }, []);
 
+  // stringDraft: giữ string khi user đang gõ, tránh reset về 0 khi xóa hết
+  const [stringDraft, setStringDraft] = useState<Record<string, string>>({});
+
+  // Khởi tạo stringDraft từ profile khi load xong
+  const draftInitialized = useRef(false);
+  useEffect(() => {
+    if (profile && !draftInitialized.current) {
+      draftInitialized.current = true;
+      const init: Record<string, string> = {};
+      AUTO_SETTINGS_NUMERIC_GROUPS.forEach((g) =>
+        g.fields.forEach((f) => { init[f.field] = toInputString((profile as any)[f.field]); })
+      );
+      setStringDraft(init);
+    }
+  }, [profile]);
+
   const updateNumber = (field: AutoSettingsNumericField, value: string): void => {
-    setProfile((current) => current ? { ...current, [field]: toNumber(value) } : current);
+    // Cập nhật string draft (user có thể gõ dở, để trống, v.v.)
+    setStringDraft((prev) => ({ ...prev, [field]: value }));
+    // Chỉ cập nhật profile nếu parse được số hợp lệ
+    const num = parseInputNumber(value);
+    if (num !== undefined) {
+      setProfile((current) => current ? { ...current, [field]: num } : current);
+    }
+  };
+
+  // Khi rời input: đồng bộ lại string với giá trị số trong profile
+  const commitNumber = (field: AutoSettingsNumericField): void => {
+    setProfile((current) => {
+      if (!current) return current;
+      const str = stringDraft[field] ?? "";
+      const num = parseInputNumber(str);
+      const finalVal = num !== undefined ? num : (current as any)[field];
+      setStringDraft((prev) => ({ ...prev, [field]: toInputString(finalVal) }));
+      return { ...current, [field]: finalVal };
+    });
   };
 
   const updateSoilType = (soilType: FaoSoilType): void => {
@@ -105,6 +148,12 @@ export function AutoSettings() {
     try {
       const response = await updateAutoSettings(buildAutoSettingsPayload(profile));
       setProfile(response.data);
+      // Đồng bộ lại stringDraft sau khi server trả về giá trị chuẩn
+      const fresh: Record<string, string> = {};
+      AUTO_SETTINGS_NUMERIC_GROUPS.forEach((g) =>
+        g.fields.forEach((f) => { fresh[f.field] = toInputString((response.data as any)[f.field]); })
+      );
+      setStringDraft(fresh);
       setMessage("Đã lưu cấu hình MPC.");
     } catch (err) {
       setError(readAutoSettingsError(err));
@@ -116,7 +165,7 @@ export function AutoSettings() {
   if (loading) {
     return (
       <div className="elevated-card rounded-3xl p-5" data-testid="auto-settings-loading">
-        <p className="text-slate-500" style={{ fontSize: "13px" }}>Đang tải cấu hình MPC...</p>
+        <p className="text-slate-500" style={{ fontSize: "14px" }}>Đang tải cấu hình MPC...</p>
       </div>
     );
   }
@@ -124,7 +173,7 @@ export function AutoSettings() {
   if (!profile) {
     return (
       <div className="elevated-card rounded-3xl p-5" data-testid="auto-settings-error">
-        <p className="text-red-700" style={{ fontSize: "13px", fontWeight: 700 }}>
+        <p className="text-red-700" style={{ fontSize: "14px", fontWeight: 700 }}>
           {error || "Không tải được cấu hình MPC."}
         </p>
       </div>
@@ -134,11 +183,13 @@ export function AutoSettings() {
   return (
     <AutoSettingsForm
       profile={profile}
+      stringDraft={stringDraft}
       saving={saving}
       message={message}
       error={error}
       onSave={save}
       onNumberChange={updateNumber}
+      onNumberBlur={commitNumber}
       onSoilTypeChange={updateSoilType}
       onActuatorEnabledChange={(checked) => setProfile({ ...profile, actuator_enabled: checked })}
     />
@@ -147,11 +198,13 @@ export function AutoSettings() {
 
 export function AutoSettingsForm({
   profile,
+  stringDraft = {},
   saving,
   message,
   error,
   onSave,
   onNumberChange,
+  onNumberBlur,
   onSoilTypeChange,
   onActuatorEnabledChange,
 }: AutoSettingsFormProps) {
@@ -159,10 +212,10 @@ export function AutoSettingsForm({
     <div className="elevated-card rounded-3xl p-5" data-testid="auto-settings-form">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
-          <p className="text-slate-800" style={{ fontSize: "15px", fontWeight: 800 }}>
+          <p className="text-slate-800" style={{ fontSize: "16px", fontWeight: 800 }}>
             Cấu hình MPC
           </p>
-          <p className="text-slate-500" style={{ fontSize: "12px" }}>
+          <p className="text-slate-500" style={{ fontSize: "13px" }}>
             Lưu cấu hình FAO-56 cho mô hình Dr/RAW và giữ các ngưỡng sensor % để hiển thị legacy.
           </p>
         </div>
@@ -172,15 +225,15 @@ export function AutoSettingsForm({
         </Button>
       </div>
 
-      <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-amber-800" style={{ fontSize: "12px" }}>
+      <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-amber-800" style={{ fontSize: "13px" }}>
         Sensor độ ẩm đất trả về phần trăm trên thang cảm biến 0-100. Loại đất sẽ quyết định preset vật lý FAO-56.
       </div>
 
       <div className="mt-5 space-y-5 border-t border-slate-100 pt-4">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           <div className="space-y-1.5">
-          <Label className="text-slate-600" style={{ fontSize: "12px" }}>Loại đất</Label>
-          <p className="text-slate-400 min-h-[30px]" style={{ fontSize: "11px" }}>
+          <Label className="text-slate-600" style={{ fontSize: "13px" }}>Loại đất</Label>
+          <p className="text-slate-400 min-h-[30px]" style={{ fontSize: "12px" }}>
             Chọn nhóm đất để hệ thống lấy thông số FAO tương ứng.
           </p>
           <Select
@@ -209,33 +262,36 @@ export function AutoSettingsForm({
           {AUTO_SETTINGS_NUMERIC_GROUPS.map((group) => (
             <section key={group.title} className="space-y-3">
               <div>
-                <p className="text-slate-700" style={{ fontSize: "12px", fontWeight: 800 }}>{group.title}</p>
-                <p className="text-slate-500 mt-1" style={{ fontSize: "11px" }}>{group.description}</p>
+                <p className="text-slate-700" style={{ fontSize: "13px", fontWeight: 800 }}>{group.title}</p>
+                <p className="text-slate-500 mt-1" style={{ fontSize: "12px" }}>{group.description}</p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {group.fields.map((field) => (
                   <div key={field.field} className="space-y-1.5">
-                    <Label className="text-slate-600" style={{ fontSize: "12px" }} htmlFor={fieldTestId(field.field)}>
+                    <Label className="text-slate-600" style={{ fontSize: "13px" }} htmlFor={fieldTestId(field.field)}>
                       {field.label}
                     </Label>
                     {field.helper && (
-                      <p className="text-slate-400 min-h-[30px]" style={{ fontSize: "11px" }}>
+                      <p className="text-slate-400 min-h-[30px]" style={{ fontSize: "12px" }}>
                         {field.helper}
                       </p>
                     )}
                     <div className="flex items-center gap-2">
-                      <Input
+                      <input
                         id={fieldTestId(field.field)}
                         data-testid={fieldTestId(field.field)}
                         type="number"
-                        value={profile[field.field]}
+                        value={stringDraft[field.field] ?? toInputString(profile[field.field])}
                         step={field.step}
                         min={field.min}
                         max={field.max}
                         onChange={(event) => onNumberChange(field.field, event.target.value)}
+                        onBlur={() => onNumberBlur?.(field.field)}
                         aria-invalid={Boolean(error)}
+                        className="w-full px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 transition-all"
+                        style={{ fontSize: "14px" }}
                       />
-                      {field.suffix && <span className="text-slate-400 shrink-0" style={{ fontSize: "11px" }}>{field.suffix}</span>}
+                      {field.suffix && <span className="text-slate-400 shrink-0" style={{ fontSize: "12px" }}>{field.suffix}</span>}
                     </div>
                   </div>
                 ))}
@@ -246,7 +302,7 @@ export function AutoSettingsForm({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-5">
-        <label className="flex items-center gap-2 text-slate-700" style={{ fontSize: "13px", fontWeight: 700 }}>
+        <label className="flex items-center gap-2 text-slate-700" style={{ fontSize: "14px", fontWeight: 700 }}>
           <Switch
             checked={profile.actuator_enabled}
             onCheckedChange={onActuatorEnabledChange}
@@ -259,7 +315,7 @@ export function AutoSettingsForm({
       {(message || error) && (
         <p
           className={error ? "mt-4 text-red-700" : "mt-4 text-slate-500"}
-          style={{ fontSize: "12px", fontWeight: error ? 700 : 500 }}
+          style={{ fontSize: "13px", fontWeight: error ? 700 : 500 }}
           role={error ? "alert" : "status"}
           data-testid="auto-settings-message"
         >
