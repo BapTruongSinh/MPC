@@ -129,6 +129,45 @@ def build_uptime_hint(device_code: str = 'esp32-main') -> str:
     return 'ESP32 đang mất kết nối'
 
 
+def check_esp_connection_alert(device_code: str = 'esp32-main'):
+    last_seen = _esp32_last_seen.get(device_code)
+    if last_seen is None:
+        return
+
+    now = timezone.now()
+    delta = now - last_seen
+    
+    alert_seconds = 300
+
+    state, _ = DeviceState.objects.get_or_create(device_code=device_code)
+    extra = state.extra or {}
+    tracking = extra.get('alert_tracking') or {}
+    changed = False
+
+    if delta.total_seconds() >= alert_seconds:
+        if not tracking.get('esp_offline_alert_sent'):
+            title = 'Cảnh báo Mất kết nối ESP32'
+            msg = f'Thiết bị điều khiển trung tâm (ESP32) đã mất kết nối hơn {alert_seconds//60} phút. Vui lòng kiểm tra nguồn điện và WiFi.'
+            Alert.objects.create(
+                level=Alert.Level.ERROR,
+                device_code=device_code,
+                title=title,
+                message=msg,
+            )
+            send_telegram_alert(title, msg)
+            tracking['esp_offline_alert_sent'] = True
+            changed = True
+    else:
+        if tracking.pop('esp_offline_alert_sent', None):
+            changed = True
+
+    if changed:
+        extra['alert_tracking'] = tracking
+        state.extra = extra
+        state.save(update_fields=['extra', 'updated_at'])
+
+
+
 def get_pending_commands(limit: int = 5, *, device_code: str | None = None):
     queryset = (
         DeviceCommand.objects
@@ -330,9 +369,37 @@ def check_environmental_alerts(payload: dict, device_code: str = 'esp32-main'):
         state.save(update_fields=['extra', 'updated_at'])
 
 
+def enforce_auto_environmental_rules(reading: SensorData, device_code: str = 'esp32-main'):
+    control, _ = ControlState.objects.get_or_create(singleton_key='main')
+    if control.mode != ControlState.Mode.AUTO:
+        return
+        
+    if reading.light is not None:
+        light_threshold = 200.0
+        desired_light_on = (reading.light < light_threshold)
+        
+        light_state, _ = DeviceState.objects.get_or_create(device_code='light')
+        if light_state.is_on != desired_light_on:
+            pending = DeviceCommand.objects.filter(
+                device_code='light', 
+                status=DeviceCommand.CommandStatus.PENDING
+            ).exists()
+            
+            if not pending:
+                enqueue_device_command(
+                    device_code='light',
+                    command='set_power',
+                    value='on' if desired_light_on else 'off',
+                    payload={'source': 'auto_environment_rule', 'reason': f'light={reading.light}'}
+                )
+                notify_pending_commands(device_code=device_code)
+
+
 def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
     validate_sensor_numeric_fields(payload)
     sensor_payload = validate_json_finite(payload.get('payload') or {}, 'payload')
+    if 'sun_tracker' in payload:
+        sensor_payload['sun_tracker'] = validate_json_finite(payload['sun_tracker'], 'sun_tracker')
     metadata = validate_json_finite(payload.get('metadata') or {}, 'metadata')
     sensor_errors = _clean_sensor_errors(payload.get('sensor_errors'))
     device_states = validate_json_finite(payload.get('device_states') or {}, 'device_states')
@@ -415,6 +482,8 @@ def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
         state.last_command = 'telemetry_sync'
         state.last_value = 'on' if current_value else 'off'
         state.save(update_fields=['is_on', 'desired_on', 'last_command', 'last_value', 'updated_at'])
+
+    enforce_auto_environmental_rules(reading, device_code=device_code)
 
     return reading
 

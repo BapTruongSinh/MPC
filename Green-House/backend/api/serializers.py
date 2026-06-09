@@ -649,17 +649,19 @@ class IngestReadingSerializer(serializers.Serializer):
     temperature = serializers.FloatField(required=False, allow_null=True)
     humidity = serializers.FloatField(required=False, allow_null=True)
     light = serializers.FloatField(required=False, allow_null=True)
-    payload = serializers.DictField(required=False)
-    metadata = serializers.DictField(required=False)
-    sensor_errors = serializers.DictField(required=False)
-    device_states = serializers.DictField(required=False)
+    payload = serializers.DictField(required=False, allow_null=True)
+    sun_tracker = serializers.DictField(required=False, allow_null=True)
+    metadata = serializers.DictField(required=False, allow_null=True)
+    sensor_errors = serializers.DictField(required=False, allow_null=True)
+    device_states = serializers.DictField(required=False, allow_null=True)
     firmware_version = serializers.CharField(
         required=False,
         allow_blank=True,
+        allow_null=True,
         max_length=DEVICE_FIRMWARE_MAX_LENGTH,
     )
-    auto_mode = serializers.BooleanField(required=False)
-    mode = serializers.CharField(required=False, allow_blank=True)
+    auto_mode = serializers.BooleanField(required=False, allow_null=True)
+    mode = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     manual_reason = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -671,15 +673,23 @@ class IngestReadingSerializer(serializers.Serializer):
         return attrs
 
     def validate_payload(self, value):
+        if value is None: return value
         return validate_json_finite(value, "payload")
 
+    def validate_sun_tracker(self, value):
+        if value is None: return value
+        return validate_json_finite(value, "sun_tracker")
+
     def validate_metadata(self, value):
+        if value is None: return value
         return validate_json_finite(value, "metadata")
 
     def validate_sensor_errors(self, value):
+        if value is None: return value
         return validate_json_finite(_validate_sensor_error_keys(value), "sensor_errors")
 
     def validate_device_states(self, value):
+        if value is None: return value
         return validate_json_finite(value, "device_states")
 
 

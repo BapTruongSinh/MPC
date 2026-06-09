@@ -154,10 +154,13 @@ def _should_start_background_thread() -> bool:
 
 
 def _scheduler_loop() -> None:
+    from .services import check_esp_connection_alert
+
     while True:
         try:
             close_old_connections()
             run_all_due()
+            check_esp_connection_alert()
         except (OperationalError, ProgrammingError):
             logger.debug('AMPC scheduler skipped because database is not ready', exc_info=True)
         except Exception:

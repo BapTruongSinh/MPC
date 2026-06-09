@@ -26,7 +26,7 @@ from .services import (
 
 FRONTEND_POLL_SECONDS = 3
 FRONTEND_GROUP = 'frontend.main'
-ESP_GROUP = 'esp32.main'
+ESP_GROUP = 'esp32.esp32-main'
 
 
 def _control_state():
@@ -179,7 +179,15 @@ def build_state_packet():
 
 @database_sync_to_async
 def ingest_telemetry(data: dict):
-    ingest_sensor_payload(data)
+    from .serializers import IngestReadingSerializer
+    from .estimation import ensure_estimation_for_reading
+    
+    serializer = IngestReadingSerializer(data=data)
+    serializer.is_valid(raise_exception=True)
+    
+    payload = {**data, **serializer.validated_data}
+    reading = ingest_sensor_payload(payload)
+    ensure_estimation_for_reading(reading)
 
 
 
@@ -418,7 +426,7 @@ class ESPConsumer(AsyncWebsocketConsumer):
             self.scope.get('url_route', {}).get('kwargs', {}).get('device_code')
             or 'esp32-main'
         )
-        self.group_name = ESP_GROUP
+        self.group_name = f'esp32.{self.device_code}'
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
