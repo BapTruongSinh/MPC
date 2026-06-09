@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle, Droplets, Gauge, Sprout, Square, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle, Droplets, Gauge, Sprout, Square, X, Zap } from "lucide-react";
 import {
   getForecast,
   startMpcScheduler,

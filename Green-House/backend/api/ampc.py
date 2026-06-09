@@ -253,22 +253,46 @@ def _queue_pump_command(audit: AMPCRecommendation) -> AMPCRecommendation:
     payload = {'duration': duration, 'source': 'mpc'} if is_on else {'source': 'mpc'}
 
     skip_reason = _pump_command_skip_reason(value)
-    audit.device_command = (
-        _skipped_pump_command(value, payload, skip_reason)
-        if skip_reason
-        else enqueue_device_command(
+    if skip_reason:
+        audit.device_command = None
+        audit.command_created = False
+        audit.actuator_status = AMPCRecommendation.ActuatorStatus.NOT_CALLED
+        if value == 'on' and skip_reason == 'pump_is_running':
+            from .models import Alert
+            Alert.objects.create(
+                level=Alert.Level.INFO,
+                title='Bỏ qua lệnh bơm từ MPC',
+                message=f'Bơm đang bật. MPC đã bỏ qua lệnh bật bơm ({duration} giây) để tránh trùng lặp.',
+            )
+            try:
+                from channels.layers import get_channel_layer
+                from asgiref.sync import async_to_sync
+                from .consumer import _dashboard_packet
+                channel_layer = get_channel_layer()
+                if channel_layer:
+                    packet = _dashboard_packet()
+                    async_to_sync(channel_layer.group_send)(
+                        'frontend.main',
+                        {
+                            'type': 'send_state',
+                            'packet': packet,
+                        },
+                    )
+            except Exception:
+                pass
+    else:
+        audit.device_command = enqueue_device_command(
             device_code='pump',
             command='set_power',
             value=value,
             payload=payload,
         )
-    )
-    audit.command_created = audit.device_command.status == DeviceCommand.CommandStatus.PENDING
-    audit.actuator_status = (
-        AMPCRecommendation.ActuatorStatus.QUEUED
-        if audit.command_created
-        else AMPCRecommendation.ActuatorStatus.NOT_CALLED
-    )
+        audit.command_created = audit.device_command.status == DeviceCommand.CommandStatus.PENDING
+        audit.actuator_status = (
+            AMPCRecommendation.ActuatorStatus.QUEUED
+            if audit.command_created
+            else AMPCRecommendation.ActuatorStatus.NOT_CALLED
+        )
     audit.save(update_fields=[
         'device_command', 'command_created', 'actuator_status',
         'updated_at',
@@ -298,9 +322,14 @@ def _pump_command_skip_reason(value: str) -> str:
     ).exists():
         return 'duplicate_pending'
 
+    import time
+    time.sleep(5)
+
     state = DeviceState.objects.filter(device_code='pump').only('is_on').first()
-    if state and state.is_on == (value == 'on'):
-        return f'pump_already_{value}'
+    if state and state.is_on:
+        return 'pump_is_running'
+    if state and not state.is_on and value == 'off':
+        return 'pump_already_off'
     return ''
 
 

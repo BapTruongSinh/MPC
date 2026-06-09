@@ -116,7 +116,7 @@ class MpcRuntimeTests(TestCase):
         cmd = DeviceCommand.objects.get(pk=audit.device_command_id)
         self.assertTrue(audit.command_created)
         self.assertEqual(cmd.value, 'on')
-        self.assertEqual(cmd.payload, {'duration': 5})
+        self.assertEqual(cmd.payload, {'duration': 5, 'source': 'mpc'})
         self.assertIsInstance(cmd.payload['duration'], int)
 
     def test_mpc_pump_command_is_skipped_when_pump_is_running(self):
@@ -152,8 +152,8 @@ class MpcRuntimeTests(TestCase):
             solver.return_value.recommend.return_value = recommendation
             audit = run_auto_recommendation(user=self.user)
 
-        cmd = DeviceCommand.objects.get(pk=audit.device_command_id)
         self.assertFalse(audit.command_created)
-        self.assertEqual(cmd.status, DeviceCommand.CommandStatus.SKIPPED)
-        self.assertEqual(cmd.payload, {'duration': 3, 'skip_reason': 'pump_already_on'})
+        self.assertIsNone(audit.device_command)
+        self.assertEqual(audit.actuator_status, AMPCRecommendation.ActuatorStatus.NOT_CALLED)
+        self.assertEqual(DeviceCommand.objects.count(), 0)
         notify.assert_not_called()

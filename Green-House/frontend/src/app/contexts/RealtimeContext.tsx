@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import type {
   AlertItem,
   ControlState,
@@ -193,7 +194,26 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
     setLatest(nextLatest);
     setDevices(nextDevices);
-    setAlerts(nextAlerts);
+    
+    setAlerts((prevAlerts) => {
+      if (prevAlerts.length > 0) {
+        const prevIds = new Set(prevAlerts.map((a) => a.id));
+        const newAlerts = nextAlerts.filter((a) => !prevIds.has(a.id) && !a.is_read);
+        newAlerts.forEach((alert) => {
+          if (alert.level === "error") {
+            toast.error(alert.title, { description: alert.message });
+          } else if (alert.level === "warning") {
+            toast.warning(alert.title, { description: alert.message });
+          } else if (alert.level === "success") {
+            toast.success(alert.title, { description: alert.message });
+          } else {
+            toast.info(alert.title, { description: alert.message });
+          }
+        });
+      }
+      return nextAlerts;
+    });
+
     setSensorErrors(nextSensorErrors);
     setSunTracker(nextSunTracker);
     setChartHistory((prev) => appendReading(prev, nextLatest));

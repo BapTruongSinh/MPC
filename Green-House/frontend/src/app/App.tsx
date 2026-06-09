@@ -16,6 +16,7 @@ import { ActionHistoryPage } from "./components/ActionHistoryPage";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { LoginPage } from "./pages/LoginPage";
 import { RealtimeProvider, useRealtime } from "./contexts/RealtimeContext";
+import { Toaster } from "sonner";
 
 function Dashboard() {
   const { logout } = useAuth();
@@ -140,6 +141,7 @@ export default function App() {
   return (
     <AuthProvider>
       <AppInner />
+      <Toaster position="top-right" richColors duration={3000} />
     </AuthProvider>
   );
 }
