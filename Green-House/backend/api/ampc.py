@@ -250,7 +250,7 @@ def _queue_pump_command(audit: AMPCRecommendation) -> AMPCRecommendation:
     duration = _pump_command_duration(audit.pump_seconds)
     is_on = duration > 0
     value = 'on' if is_on else 'off'
-    payload = {'duration': duration} if is_on else {}
+    payload = {'duration': duration, 'source': 'mpc'} if is_on else {'source': 'mpc'}
 
     skip_reason = _pump_command_skip_reason(value)
     audit.device_command = (
