@@ -26,6 +26,8 @@ from .user_resources import default_owner, ensure_user_greenhouse_config
 # ── Hằng số heartbeat (kiểm tra bằng RAM, không cần DB Device) ──
 HEARTBEAT_TIMEOUT_SECONDS = 15
 HEARTBEAT_SLOW_SECONDS = 30
+ESP_COMMAND_GROUP = 'esp32.main'
+AUTO_COMMAND_SOURCES = {'mpc', 'target_band_auto'}
 
 # Trạng thái kết nối ESP32 lưu trong RAM (thay vì DB Device)
 _esp32_last_seen: dict[str, object] = {}  # device_code -> datetime
@@ -190,7 +192,7 @@ def get_pending_commands(limit: int = 5, *, device_code: str | None = None):
 
 def notify_pending_commands(device_code: str = 'esp32-main'):
     data = {'commands': get_pending_commands()}
-    _push_ws_group(f'esp32.{device_code}', 'pending_commands', data)
+    _push_ws_group(ESP_COMMAND_GROUP, 'pending_commands', data)
 
 
 def _force_manual_mode(reason: str):
@@ -456,20 +458,79 @@ def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
         state.last_value = 'on' if current_value else 'off'
         state.save(update_fields=['is_on', 'desired_on', 'last_command', 'last_value', 'updated_at'])
 
+    from .auto_pump_control import run_target_band_auto_pump
+    run_target_band_auto_pump(reading, device_code=device_code)
+
     return reading
 
+
+
+def _auto_command_source(payload: dict) -> str:
+    return str(payload.get('source') or '').strip().lower()
+
+
+def _pending_duplicate_exists(device_code: str, command: str, value: str) -> bool:
+    return DeviceCommand.objects.filter(
+        device_code=device_code,
+        command=command,
+        value=value,
+        status=DeviceCommand.CommandStatus.PENDING,
+    ).exists()
+
+
+def _skipped_command(device_code: str, command: str, value: str, payload: dict, reason: str):
+    payload = {**payload, 'skip_reason': reason}
+    return DeviceCommand.objects.create(
+        device_code=device_code,
+        command=command,
+        value=value,
+        payload=payload,
+        status=DeviceCommand.CommandStatus.SKIPPED,
+        acked_at=timezone.now(),
+    )
+
+
+def _sync_desired_device_state(device_code: str, command: str, value: str):
+    if command != 'set_power' or value.lower() not in {'on', 'off'}:
+        return
+    state, _ = DeviceState.objects.get_or_create(device_code=device_code)
+    state.desired_on = value.lower() == 'on'
+    state.last_command = command
+    state.last_value = value
+    state.save(update_fields=['desired_on', 'last_command', 'last_value', 'updated_at'])
+
+
+def _skip_auto_pump_command(device_code: str, command: str, value: str, payload: dict) -> str | None:
+    if device_code != 'pump' or command != 'set_power':
+        return None
+    if _auto_command_source(payload) not in AUTO_COMMAND_SOURCES:
+        return None
+    if value.lower() not in {'on', 'off'}:
+        return None
+    if _pending_duplicate_exists(device_code, command, value):
+        return 'duplicate_pending'
+
+    state = DeviceState.objects.filter(device_code='pump').only('is_on').first()
+    if state and state.is_on == (value.lower() == 'on'):
+        return f'pump_already_{value.lower()}'
+    return None
 
 
 def enqueue_device_command(device_code: str, command: str, value: str = '', payload: dict | None = None):
     command = _clean_limited_text('command', command, DEVICE_COMMAND_TEXT_MAX_LENGTH)
     value = _clean_limited_text('value', value, DEVICE_COMMAND_TEXT_MAX_LENGTH)
     payload = validate_json_finite(payload or {}, 'payload')
+    skip_reason = _skip_auto_pump_command(device_code, command, value, payload)
+    if skip_reason:
+        return _skipped_command(device_code, command, value, payload, skip_reason)
+
     cmd = DeviceCommand.objects.create(
         device_code=device_code,
         command=command,
         value=value,
         payload=payload,
     )
+    _sync_desired_device_state(device_code, command, value)
     return cmd
 
 

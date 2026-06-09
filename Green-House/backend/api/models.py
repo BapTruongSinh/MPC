@@ -310,6 +310,7 @@ class DeviceCommand(TimeStampedModel):
         PENDING = 'pending', 'Pending'
         ACK = 'ack', 'Acknowledged'
         FAILED = 'failed', 'Failed'
+        SKIPPED = 'skipped', 'Skipped'
 
     # device_code: 'pump', 'fan', 'mist', 'light', v.v.
     device_code = models.CharField(max_length=50, db_index=True)

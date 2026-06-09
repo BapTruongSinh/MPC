@@ -9,8 +9,17 @@ from rest_framework.test import APIClient
 
 from api.ampc import default_greenhouse, get_greenhouse_control_profile
 from api.estimation import ensure_estimation_for_sensor_window
-from api.models import AMPCRecommendation, EstimationCycle, Greenhouse, GreenhouseControlProfile, SensorData
-from api.services import ingest_sensor_payload
+from api.models import (
+    AMPCRecommendation,
+    AMPCSchedulerState,
+    DeviceCommand,
+    DeviceState,
+    EstimationCycle,
+    Greenhouse,
+    GreenhouseControlProfile,
+    SensorData,
+)
+from api.services import enqueue_device_command, ingest_sensor_payload
 
 
 class GreenHouseRuntimeApiTests(TestCase):
@@ -152,6 +161,109 @@ class GreenHouseRuntimeApiTests(TestCase):
         self.assertTrue(reading.payload['mist'])
         self.assertEqual(reading.payload['device_states']['pump_on'], True)
         self.assertEqual(reading.payload['sun_tracker']['servo_vertical'], 45)
+
+    def test_auto_target_band_starts_pump_when_mpc_is_off(self):
+        greenhouse = default_greenhouse(self.user)
+        profile = get_greenhouse_control_profile(self.user)
+        profile.actuator_enabled = True
+        profile.target_low = 55.0
+        profile.target_high = 65.0
+        profile.save(update_fields=['actuator_enabled', 'target_low', 'target_high', 'updated_at'])
+
+        ingest_sensor_payload({
+            'greenhouse_id': greenhouse.id,
+            'soil_moisture': 54.0,
+            'temperature': 29.0,
+            'humidity': 70.0,
+            'light': 5500.0,
+            'mode': 'auto',
+            'device_states': {'pump_on': False},
+        })
+
+        cmd = DeviceCommand.objects.get(device_code='pump')
+        self.assertEqual(cmd.status, DeviceCommand.CommandStatus.PENDING)
+        self.assertEqual(cmd.value, 'on')
+        self.assertEqual(cmd.payload['source'], 'target_band_auto')
+        self.assertEqual(cmd.payload['target_stop'], 60.0)
+
+    def test_auto_target_band_stops_pump_at_midpoint_when_mpc_is_off(self):
+        greenhouse = default_greenhouse(self.user)
+        profile = get_greenhouse_control_profile(self.user)
+        profile.actuator_enabled = True
+        profile.target_low = 55.0
+        profile.target_high = 65.0
+        profile.save(update_fields=['actuator_enabled', 'target_low', 'target_high', 'updated_at'])
+        DeviceState.objects.create(device_code='pump', is_on=True, desired_on=True)
+
+        ingest_sensor_payload({
+            'greenhouse_id': greenhouse.id,
+            'soil_moisture': 60.0,
+            'temperature': 29.0,
+            'humidity': 70.0,
+            'light': 5500.0,
+            'mode': 'auto',
+            'device_states': {'pump_on': True},
+        })
+
+        cmd = DeviceCommand.objects.get(device_code='pump')
+        self.assertEqual(cmd.status, DeviceCommand.CommandStatus.PENDING)
+        self.assertEqual(cmd.value, 'off')
+        self.assertEqual(DeviceState.objects.get(device_code='pump').desired_on, False)
+
+    def test_auto_target_band_does_not_run_while_mpc_scheduler_is_on(self):
+        greenhouse = default_greenhouse(self.user)
+        profile = get_greenhouse_control_profile(self.user)
+        profile.actuator_enabled = True
+        profile.save(update_fields=['actuator_enabled', 'updated_at'])
+        AMPCSchedulerState.objects.update_or_create(
+            singleton_key='main',
+            defaults={'is_enabled': True, 'interval_seconds': 300},
+        )
+
+        ingest_sensor_payload({
+            'greenhouse_id': greenhouse.id,
+            'soil_moisture': 54.0,
+            'temperature': 29.0,
+            'humidity': 70.0,
+            'light': 5500.0,
+            'mode': 'auto',
+            'device_states': {'pump_on': False},
+        })
+
+        self.assertFalse(DeviceCommand.objects.filter(device_code='pump').exists())
+
+    def test_auto_target_band_skips_duplicate_on_when_pump_is_running(self):
+        greenhouse = default_greenhouse(self.user)
+        profile = get_greenhouse_control_profile(self.user)
+        profile.actuator_enabled = True
+        profile.save(update_fields=['actuator_enabled', 'updated_at'])
+        DeviceState.objects.create(device_code='pump', is_on=True, desired_on=True)
+
+        ingest_sensor_payload({
+            'greenhouse_id': greenhouse.id,
+            'soil_moisture': 54.0,
+            'temperature': 29.0,
+            'humidity': 70.0,
+            'light': 5500.0,
+            'mode': 'auto',
+            'device_states': {'pump_on': True},
+        })
+
+        self.assertFalse(DeviceCommand.objects.filter(device_code='pump').exists())
+
+    def test_mpc_pump_on_command_is_skipped_when_pump_is_running(self):
+        DeviceState.objects.create(device_code='pump', is_on=True, desired_on=True)
+
+        cmd = enqueue_device_command(
+            device_code='pump',
+            command='set_power',
+            value='on',
+            payload={'source': 'mpc', 'duration': 30},
+        )
+
+        self.assertEqual(cmd.status, DeviceCommand.CommandStatus.SKIPPED)
+        self.assertEqual(cmd.payload['skip_reason'], 'pump_already_on')
+        self.assertFalse(DeviceCommand.objects.filter(status=DeviceCommand.CommandStatus.PENDING).exists())
 
     def test_ingest_payload_respects_greenhouse_id_and_overwrites_timestamp(self):
         greenhouse = default_greenhouse(self.user)
