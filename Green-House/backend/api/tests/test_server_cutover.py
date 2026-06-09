@@ -198,45 +198,6 @@ class OwnerScopedRuntimeApiTests(TestCase):
         history = response.json()['history']
         self.assertEqual([row['soil_moisture'] for row in history], [70.0, 68.0, 66.0, 64.0, 62.0, 60.0])
 
-    def test_auto_target_band_controls_pump_only_when_mpc_is_off(self):
-        control, _ = ControlState.objects.get_or_create(singleton_key='main')
-        control.mode = ControlState.Mode.AUTO
-        control.save(update_fields=['mode', 'updated_at'])
-
-        profile = get_control_profile(self.user)
-        profile.actuator_enabled = True
-        profile.target_low = 55.0
-        profile.target_high = 65.0
-        profile.save(update_fields=['actuator_enabled', 'target_low', 'target_high', 'updated_at'])
-
-        ingest_sensor_payload({
-            'owner_id': self.user.id,
-            'soil_moisture': 54.0,
-            'temperature': 29.0,
-            'humidity': 70.0,
-            'light': 5500.0,
-            'mode': 'auto',
-            'device_states': {'pump_on': False},
-        })
-        cmd = DeviceCommand.objects.get(device_code='pump')
-        self.assertEqual(cmd.value, 'on')
-        self.assertEqual(cmd.payload['source'], 'target_band_auto')
-
-        DeviceCommand.objects.all().delete()
-        AMPCSchedulerState.objects.update_or_create(
-            singleton_key='main',
-            defaults={'is_enabled': True, 'interval_seconds': 300},
-        )
-        ingest_sensor_payload({
-            'owner_id': self.user.id,
-            'soil_moisture': 54.0,
-            'temperature': 29.0,
-            'humidity': 70.0,
-            'light': 5500.0,
-            'mode': 'auto',
-            'device_states': {'pump_on': False},
-        })
-        self.assertFalse(DeviceCommand.objects.filter(device_code='pump').exists())
 
     def test_mpc_pump_on_command_is_skipped_when_pump_is_running(self):
         DeviceState.objects.create(device_code='pump', is_on=True, desired_on=True)

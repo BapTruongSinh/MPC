@@ -28,7 +28,7 @@ from .user_resources import default_owner
 HEARTBEAT_TIMEOUT_SECONDS = 15
 HEARTBEAT_SLOW_SECONDS = 30
 ESP_COMMAND_GROUP = 'esp32.main'
-AUTO_COMMAND_SOURCES = {'mpc', 'target_band_auto'}
+AUTO_COMMAND_SOURCES = {'mpc'}
 
 # Trạng thái kết nối ESP32 lưu trong RAM (thay vì DB Device)
 _esp32_last_seen: dict[str, object] = {}  # device_code -> datetime
@@ -473,9 +473,6 @@ def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
         state.last_command = 'telemetry_sync'
         state.last_value = 'on' if current_value else 'off'
         state.save(update_fields=['is_on', 'desired_on', 'last_command', 'last_value', 'updated_at'])
-
-    from .auto_pump_control import run_target_band_auto_pump
-    run_target_band_auto_pump(reading, device_code=device_code)
 
     return reading
 
