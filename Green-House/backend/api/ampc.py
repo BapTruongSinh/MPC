@@ -93,7 +93,7 @@ def profile_to_config(
             depletion_fraction_p=getattr(profile, 'depletion_fraction_p', 0.5),
             et0_hour_mm=0.6 if et0_hour_mm is None else et0_hour_mm,
             pump_efficiency=getattr(profile, 'pump_efficiency', 0.8),
-            pump_flow_lps=getattr(profile, 'pump_flow_lps', 0.02),
+            pump_flow_lps=getattr(profile, 'pump_flow_lps', 0.001),
             irrigation_area_m2=getattr(profile, 'irrigation_area_m2', 0.25),
         ),
     )

@@ -43,7 +43,7 @@ FAO56_NUMERIC_DEFAULTS = {
     "root_depth_m": 0.30,
     "depletion_fraction_p": 0.5,
     "pump_efficiency": 0.8,
-    "pump_flow_lps": 0.02,
+    "pump_flow_lps": 0.001,
     "irrigation_area_m2": 0.25,
 }
 GREENHOUSE_RUNTIME_NUMERIC_DEFAULTS = {

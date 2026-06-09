@@ -121,6 +121,10 @@ def test_water_stress_coefficient_matches_fao56_thresholds() -> None:
     assert water_stress_coefficient(taw, config, taw, raw) == pytest.approx(0.0)
 
 
+def test_default_pump_flow_matches_calibrated_small_bed_estimate() -> None:
+    assert Fao56Config().pump_flow_lps == pytest.approx(0.001)
+
+
 def test_irrigation_depth_uses_pump_efficiency_flow_time_and_area() -> None:
     config = Fao56Config(
         pump_efficiency=0.8,
@@ -132,7 +136,7 @@ def test_irrigation_depth_uses_pump_efficiency_flow_time_and_area() -> None:
 
 
 def test_advance_depletion_applies_et_and_irrigation_then_clamps() -> None:
-    config = Fao56Config(crop_kc=1.2)
+    config = Fao56Config(crop_kc=1.2, pump_flow_lps=0.02)
 
     result = advance_depletion_mm(
         depletion_mm=1.5,

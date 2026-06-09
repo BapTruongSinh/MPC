@@ -371,7 +371,7 @@ class GreenhouseControlProfile(TimeStampedModel):
     root_depth_m = models.FloatField(default=0.30)
     depletion_fraction_p = models.FloatField(default=0.5)
     pump_efficiency = models.FloatField(default=0.8)
-    pump_flow_lps = models.FloatField(default=0.02)
+    pump_flow_lps = models.FloatField(default=0.001)
     irrigation_area_m2 = models.FloatField(default=0.25)
 
     target_low = models.FloatField(default=55.0)

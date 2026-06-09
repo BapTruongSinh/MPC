@@ -44,7 +44,7 @@ class Fao56Config:
     depletion_fraction_p: float = 0.5
     et0_hour_mm: float = 0.6
     pump_efficiency: float = 0.8
-    pump_flow_lps: float = 0.02
+    pump_flow_lps: float = 0.001
     irrigation_area_m2: float = 0.25
 
     def __post_init__(self) -> None:
