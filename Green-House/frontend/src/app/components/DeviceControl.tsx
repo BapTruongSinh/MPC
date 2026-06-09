@@ -1,0 +1,431 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Fan, Lightbulb, Droplets, Power, Zap, Loader2, CloudRain, Timer } from "lucide-react";
+import type { ControlState, DeviceItem } from "../lib/greenhouse.types";
+import { useRealtime } from "../contexts/RealtimeContext";
+
+const DEVICE_META: Record<
+  "fan" | "light" | "pump" | "mist",
+  {
+    label: string;
+    description: string;
+    icon: React.ElementType;
+    iconColor: string;
+    iconBg: string;
+    power: number;
+    activeClass: string;
+    activeGlowClass: string;
+    activeProgressClass: string;
+  }
+> = {
+  fan: {
+    label: "Quạt thông gió",
+    description: "Điều hòa nhiệt độ",
+    icon: Fan,
+    iconColor: "text-blue-500",
+    iconBg: "bg-blue-50",
+    power: 0,
+    activeClass: "device-icon-fan",
+    activeGlowClass: "device-glow-fan",
+    activeProgressClass: "bg-blue-500",
+  },
+  light: {
+    label: "Đèn chiếu sáng",
+    description: "Bổ sung ánh sáng",
+    icon: Lightbulb,
+    iconColor: "text-amber-500",
+    iconBg: "bg-amber-50",
+    power: 0,
+    activeClass: "device-icon-light",
+    activeGlowClass: "device-glow-light",
+    activeProgressClass: "bg-amber-500",
+  },
+  pump: {
+    label: "Bơm tưới nước",
+    description: "Hệ thống tưới nhỏ giọt",
+    icon: Droplets,
+    iconColor: "text-violet-500",
+    iconBg: "bg-violet-50",
+    power: 0,
+    activeClass: "device-icon-pump",
+    activeGlowClass: "device-glow-pump",
+    activeProgressClass: "bg-violet-500",
+  },
+  mist: {
+    label: "Máy phun sương",
+    description: "Tăng độ ẩm không khí",
+    icon: CloudRain,
+    iconColor: "text-teal-500",
+    iconBg: "bg-teal-50",
+    power: 0,
+    activeClass: "device-icon-mist",
+    activeGlowClass: "device-glow-mist",
+    activeProgressClass: "bg-teal-500",
+  },
+};
+
+type DeviceType = "fan" | "light" | "pump" | "mist";
+
+type ViewDevice = {
+  id: number;
+  name: string;
+  code: string;
+  device_type: DeviceType;
+  status: "online" | "offline";
+  state: {
+    is_on: boolean;
+    updated_at?: string;
+  } | null;
+};
+
+const DEFAULT_DEVICES: ViewDevice[] = [
+  {
+    id: 1,
+    name: "Quạt thông gió",
+    code: "fan-1",
+    device_type: "fan",
+    status: "offline",
+    state: { is_on: false },
+  },
+  {
+    id: 2,
+    name: "Đèn chiếu sáng",
+    code: "light-1",
+    device_type: "light",
+    status: "offline",
+    state: { is_on: false },
+  },
+  {
+    id: 3,
+    name: "Bơm tưới nước",
+    code: "pump-1",
+    device_type: "pump",
+    status: "offline",
+    state: { is_on: false },
+  },
+  {
+    id: 4,
+    name: "Máy phun sương",
+    code: "mist-1",
+    device_type: "mist",
+    status: "offline",
+    state: { is_on: false },
+  },
+];
+
+function normalizeDevices(devices: DeviceItem[]): ViewDevice[] {
+  const picked = new Map<DeviceType, ViewDevice>();
+
+  for (const device of devices) {
+    if (device.device_type !== "fan" && device.device_type !== "light" && device.device_type !== "pump" && device.device_type !== "mist") {
+      continue;
+    }
+
+    picked.set(device.device_type, {
+      id: device.id,
+      name: device.name,
+      code: device.code,
+      device_type: device.device_type,
+      status: device.status,
+      state: device.state,
+    });
+  }
+
+  return DEFAULT_DEVICES.map((fallback) => picked.get(fallback.device_type) ?? fallback);
+}
+
+interface DeviceControlProps {
+  control: ControlState | null;
+}
+
+// Lưu thời điểm bật + duration (giây) cho mỗi thiết bị để tính countdown
+type CountdownEntry = { startedAt: number; durationSec: number };
+
+export function DeviceControl({ control }: DeviceControlProps) {
+  const { devices, sensorErrors, sendMode, sendDeviceControl } = useRealtime();
+  const [togglingKey, setTogglingKey] = useState<DeviceType | null>(null);
+  const [switchingAuto, setSwitchingAuto] = useState(false);
+  const [expandedTimer, setExpandedTimer] = useState<DeviceType | null>(null);
+  const [timerValues, setTimerValues] = useState<Record<DeviceType, number>>({ fan: 30, light: 30, pump: 30, mist: 30 });
+
+  // Countdown: key = device_type, value = { startedAt (ms), durationSec }
+  const countdownMap = useRef<Map<DeviceType, CountdownEntry>>(new Map());
+  const [, forceRender] = useState(0);
+
+  // Tick mỗi giây để cập nhật countdown
+  useEffect(() => {
+    const id = window.setInterval(() => forceRender((n) => n + 1), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const visibleDevices = useMemo(() => normalizeDevices(devices), [devices]);
+  const isAuto = control?.mode === "AUTO";
+  const isAutoLocked = !!sensorErrors?.dht;
+
+  const handleToggleAuto = async () => {
+    if (!isAuto && isAutoLocked) return;
+
+    setSwitchingAuto(true);
+    sendMode(isAuto ? "MANUAL" : "AUTO");
+    setTimeout(() => setSwitchingAuto(false), 500);
+  };
+
+  const handleToggle = async (deviceType: DeviceType, isOn: boolean) => {
+    if (isAuto) return;
+    setTogglingKey(deviceType);
+    
+    // Bật/Tắt bình thường không hẹn giờ
+    sendDeviceControl(deviceType, isOn ? "OFF" : "ON", 0);
+    
+    if (isOn) setExpandedTimer(null); // Đang bật mà tắt thì đóng panel
+    setTimeout(() => setTogglingKey(null), 100);
+  };
+
+  const handleToggleWithTimer = async (deviceType: DeviceType, durationSeconds: number) => {
+    if (isAuto) return;
+    setTogglingKey(deviceType);
+    
+    // Lưu countdown entry
+    countdownMap.current.set(deviceType, { startedAt: Date.now(), durationSec: durationSeconds });
+    sendDeviceControl(deviceType, "ON", durationSeconds);
+    
+    setTimeout(() => setTogglingKey(null), 100);
+  };
+
+  // Helper: tính số giây còn lại
+  const getCountdownSec = (deviceType: DeviceType): number | null => {
+    const entry = countdownMap.current.get(deviceType);
+    if (!entry) return null;
+    const elapsed = Math.floor((Date.now() - entry.startedAt) / 1000);
+    const remaining = entry.durationSec - elapsed;
+    if (remaining <= 0) {
+      countdownMap.current.delete(deviceType);
+      return null;
+    }
+    return remaining;
+  };
+
+  // Format giây → "mm:ss" hoặc "Xs"
+  const formatCountdown = (sec: number): string => {
+    if (sec >= 60) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${m}:${String(s).padStart(2, "0")}`;
+    }
+    return `${sec}s`;
+  };
+
+
+
+  const activeCount = visibleDevices.filter((d) => d.state?.is_on).length;
+  const onlineCount = visibleDevices.filter((d) => d.status === "online").length;
+
+  return (
+    <div className="elevated-card rounded-3xl overflow-hidden">
+      <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center border border-blue-100">
+            <Zap className="w-4 h-4 text-blue-600" />
+          </div>
+          <div>
+            <h3 className="text-slate-900">Điều khiển thiết bị</h3>
+            <p className="text-slate-400" style={{ fontSize: "11px" }}>
+              {isAuto ? "Đang bật chế độ tự động" : "Đang ở chế độ thủ công"}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleToggleAuto}
+            disabled={switchingAuto || (!isAuto && isAutoLocked)}
+            className={`px-3 py-2 rounded-xl transition-all duration-300 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2 ${isAuto
+                ? "bg-blue-600 text-white hover:bg-blue-700"
+                : "bg-slate-100 text-slate-700 border border-slate-200 hover:bg-slate-200"
+              }`}
+            style={{ fontSize: "12px", fontWeight: 700 }}
+          >
+            {switchingAuto ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Power className="w-3.5 h-3.5" />}
+            {isAuto ? "Tắt tự động" : "Bật tự động"}
+          </button>
+        </div>
+      </div>
+
+      <div className="p-5 space-y-3">
+        {isAuto && (
+          <div
+            className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-blue-700"
+            style={{ fontSize: "12px" }}
+          >
+            Chế độ tự động đang bật.
+          </div>
+        )}
+
+        {visibleDevices.map((device) => {
+          const meta = DEVICE_META[device.device_type];
+          const Icon = meta.icon;
+          const isOn = device.state?.is_on ?? false;
+          const isToggling = togglingKey === device.device_type;
+
+          return (
+            <div key={device.device_type} className="flex flex-col">
+            <div
+              className={`flex items-center gap-4 p-4 rounded-2xl border transition-all duration-300 ${isOn ? "border-blue-100 bg-blue-50/50 shadow-[0_8px_20px_rgba(59,130,246,0.08)]" : "border-slate-200 bg-slate-50/60"
+                } ${expandedTimer === device.device_type ? "rounded-b-none border-b-0" : ""} ${isAuto ? "opacity-70" : ""}`}
+            >
+              <div className="relative w-11 h-11 flex items-center justify-center flex-shrink-0">
+                {isOn && <span className={`absolute inset-0 rounded-xl ${meta.activeGlowClass}`}></span>}
+
+                <div
+                  className={`relative w-11 h-11 rounded-xl flex items-center justify-center transition-all border ${isOn ? `${meta.iconBg} border-white` : "bg-white border-slate-200"
+                    }`}
+                >
+                  <Icon
+                    className={`w-5 h-5 transition-all duration-300 ${isOn ? `${meta.iconColor} ${meta.activeClass}` : "text-slate-400"
+                      }`}
+                  />
+                </div>
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <p
+                    className={`${isOn ? "text-slate-900" : "text-slate-500"}`}
+                    style={{ fontSize: "14px", fontWeight: 600 }}
+                  >
+                    {meta.label}
+                  </p>
+                </div>
+
+                <p className="text-slate-400" style={{ fontSize: "12px" }}>
+                  {meta.description}
+                </p>
+              </div>
+
+              <div className="flex flex-col items-end gap-2">
+                <div className="flex items-center gap-2">
+                  {!isOn && (
+                    <button
+                      onClick={() => setExpandedTimer(expandedTimer === device.device_type ? null : device.device_type)}
+                      disabled={isAuto || isToggling}
+                      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full transition-all duration-200 border ${
+                        expandedTimer === device.device_type
+                          ? "bg-blue-50 border-blue-200 text-blue-600 shadow-sm"
+                          : "bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-slate-700 shadow-sm"
+                      }`}
+                      title="Hẹn giờ bật"
+                    >
+                      <Timer className="w-3.5 h-3.5" />
+                      <span style={{ fontSize: "11px", fontWeight: 600 }}>Hẹn giờ</span>
+                    </button>
+                  )}
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-xs font-medium ${isOn ? "bg-blue-100 text-blue-700" : "bg-slate-200 text-slate-600"
+                      }`}
+                    style={{ fontSize: "11px" }}
+                  >
+                    {isOn ? "Bật" : "Tắt"}
+                  </span>
+                </div>
+
+                <button
+                  onClick={() => handleToggle(device.device_type, isOn)}
+                  disabled={isAuto || isToggling}
+                  className={`relative w-12 h-6 rounded-full transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed ${isOn ? "bg-blue-600" : "bg-slate-300"
+                    }`}
+                >
+                  {isToggling ? (
+                    <Loader2 className="w-3.5 h-3.5 text-white absolute top-1 left-3.5 animate-spin" />
+                  ) : (
+                    <span
+                      className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-sm transition-all duration-300 ${isOn ? "left-6" : "left-0.5"
+                        }`}
+                    ></span>
+                  )}
+                </button>
+              </div>
+            </div>
+            
+            {/* Countdown khi thiết bị đang bật có timer */}
+            {isOn && (() => {
+              const remaining = getCountdownSec(device.device_type);
+              if (remaining === null) return null;
+              return (
+                <div className="px-4 pb-3 pt-2 -mt-2 bg-blue-50/70 border border-t-0 border-blue-100 rounded-b-2xl flex items-center gap-2">
+                  <Timer className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                  <span className="text-xs text-blue-700 font-medium">Tự động tắt sau</span>
+                  <span className="text-xs font-bold text-blue-800 tabular-nums">{formatCountdown(remaining)}</span>
+                </div>
+              );
+            })()}
+
+            {/* Expanded Timer Panel */}
+            {expandedTimer === device.device_type && !isOn && (
+              <div className="px-4 pb-4 pt-2 -mt-2 bg-slate-50/60 border border-t-0 border-slate-200 rounded-b-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-medium text-slate-600 flex items-center gap-1.5">
+                    <Timer className="w-3.5 h-3.5 text-blue-500" />
+                    Hẹn giờ đếm ngược
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="0.1"
+                      max="3600"
+                      step="0.1"
+                      value={timerValues[device.device_type]}
+                      onChange={(e) => setTimerValues(prev => ({ ...prev, [device.device_type]: parseFloat(e.target.value) || 0.1 }))}
+                      className="w-16 px-1 py-0.5 text-center text-xs font-semibold text-blue-700 bg-white border border-blue-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                    <span className="text-xs text-slate-500">giây</span>
+                  </div>
+                </div>
+
+                <input
+                  type="range"
+                  min="0.1"
+                  max="3600"
+                  step="0.1"
+                  value={timerValues[device.device_type]}
+                  onChange={(e) => setTimerValues(prev => ({ ...prev, [device.device_type]: parseFloat(e.target.value) }))}
+                  className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600 mb-3"
+                />
+
+                <div className="flex items-center gap-2 mb-3">
+                  {[15, 30, 60, 120].map(sec => (
+                    <button
+                      key={sec}
+                      onClick={() => setTimerValues(prev => ({ ...prev, [device.device_type]: sec }))}
+                      className={`flex-1 py-1 rounded-md text-[10px] font-medium transition-colors ${
+                        timerValues[device.device_type] === sec
+                          ? "bg-blue-500 text-white shadow-sm"
+                          : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {sec}s
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={() => {
+                    handleToggleWithTimer(device.device_type, timerValues[device.device_type]);
+                    setExpandedTimer(null);
+                  }}
+                  disabled={isAuto || isToggling}
+                  className="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-sm shadow-blue-500/20"
+                >
+                  <Timer className="w-3.5 h-3.5" />
+                  Bật và Tự động Tắt sau {timerValues[device.device_type]} giây
+                </button>
+              </div>
+            )}
+            
+            </div>
+          );
+        })}
+      </div>
+
+
+    </div>
+  );
+}
