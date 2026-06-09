@@ -23,6 +23,7 @@ from .services import (
     is_esp32_online,
     mark_device_offline,
 )
+from .user_resources import default_owner, ensure_user_control_profile
 
 FRONTEND_POLL_SECONDS = 3
 FRONTEND_GROUP = 'frontend.main'
@@ -56,8 +57,10 @@ def _coerce_number(value, default=0):
 
 
 def _sun_tracker_snapshot() -> dict:
+    owner = default_owner()
     latest = (
         SensorData.objects
+        .filter(owner=owner)
         .order_by('-recorded_at', '-id')
         .first()
     )
@@ -83,6 +86,7 @@ def _device_states_payload() -> list:
 
 
 def _dashboard_packet() -> dict:
+    owner = default_owner()
     control = _control_state()
     esp32_online = is_esp32_online()
     sensor_errors = _current_sensor_errors()
@@ -94,7 +98,7 @@ def _dashboard_packet() -> dict:
 
     latest_data = None
     if esp32_online:
-        latest = SensorData.objects.order_by('-recorded_at', '-id').first()
+        latest = SensorData.objects.filter(owner=owner).order_by('-recorded_at', '-id').first()
         latest_data = SensorDataSerializer(latest).data if latest else None
 
     return {
@@ -211,7 +215,7 @@ def update_mode_only(mode: str):
 
 @database_sync_to_async
 def update_sun_payload_snapshot(patch: dict):
-    latest = SensorData.objects.order_by('-recorded_at', '-id').first()
+    latest = SensorData.objects.filter(owner=default_owner()).order_by('-recorded_at', '-id').first()
     if latest is None:
         return
 
@@ -231,14 +235,7 @@ def do_mark_device_offline(device_code: str):
 @database_sync_to_async
 def get_threshold_config() -> dict:
     """Lấy ngưỡng ESP32 từ profile."""
-    from .user_resources import default_owner, ensure_user_greenhouse_config
-    from .models import GreenhouseControlProfile
-    owner = default_owner()
-    greenhouse, _ = ensure_user_greenhouse_config(owner)
-    profile, _ = GreenhouseControlProfile.objects.get_or_create(
-        greenhouse=greenhouse,
-        defaults={'singleton_key': f'gh-{greenhouse.pk}'},
-    )
+    profile = ensure_user_control_profile(default_owner())
     return {
         'thresh_temp_fan_on': profile.thresh_temp_fan_on,
         'thresh_temp_fan_off': profile.thresh_temp_fan_off,

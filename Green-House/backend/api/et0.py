@@ -9,7 +9,7 @@ import requests
 from django.conf import settings
 from django.utils import timezone
 
-from .models import Greenhouse, GreenhouseControlProfile
+from .user_resources import default_owner, ensure_user_control_profile
 
 OPEN_METEO_URL = 'https://api.open-meteo.com/v1/forecast'
 ET0_VARIABLE = 'et0_fao_evapotranspiration'
@@ -32,10 +32,10 @@ def get_hourly_et0(
     when: datetime,
     *,
     step_seconds: int,
-    greenhouse: Greenhouse | None = None,
+    owner=None,
 ) -> ET0Reading:
     requested_hour = _utc(when).replace(minute=0, second=0, microsecond=0)
-    latitude, longitude = _coordinates(greenhouse)
+    latitude, longitude = _coordinates(owner)
     step_seconds = _positive_int(step_seconds)
     et0_hour_mm = _extract_et0(
         _fetch_open_meteo(latitude, longitude, requested_hour),
@@ -91,14 +91,8 @@ def _extract_et0(payload: dict[str, Any], requested_hour: datetime) -> float:
     raise OpenMeteoError('requested_hour_not_found')
 
 
-def _coordinates(greenhouse: Greenhouse | None) -> tuple[float, float]:
-    if greenhouse is None:
-        profile, _ = GreenhouseControlProfile.objects.get_or_create(singleton_key='main')
-    else:
-        profile, _ = GreenhouseControlProfile.objects.get_or_create(
-            greenhouse=greenhouse,
-            defaults={'singleton_key': f'gh-{greenhouse.pk}'},
-        )
+def _coordinates(owner) -> tuple[float, float]:
+    profile = ensure_user_control_profile(owner or default_owner())
     latitude, longitude = _number(profile.latitude), _number(profile.longitude)
     if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
         raise OpenMeteoError('coordinates_out_of_range')

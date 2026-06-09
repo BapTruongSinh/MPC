@@ -10,7 +10,7 @@ class DeviceStateAdmin(admin.ModelAdmin):
 
 @admin.register(SensorData)
 class SensorDataAdmin(admin.ModelAdmin):
-    list_display = ('id', 'temperature', 'humidity', 'light', 'soil_moisture', 'recorded_at')
+    list_display = ('id', 'owner', 'temperature', 'humidity', 'light', 'soil_moisture', 'recorded_at')
     date_hierarchy = 'recorded_at'
 
 

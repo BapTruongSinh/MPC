@@ -4,20 +4,21 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.utils import timezone
 
-from api.ampc import default_greenhouse
 from api.estimation import ensure_estimation_for_reading, ensure_recent_window_estimations
 from api.models import EstimationCycle, SensorData
+from api.user_resources import ensure_user_control_profile
 
 
 class LiveEstimationTests(TestCase):
     def setUp(self):
         user = User.objects.create_user(username='estimation', password='pw')
-        self.greenhouse = default_greenhouse(user)
+        ensure_user_control_profile(user)
+        self.owner = user
         self.start = timezone.now().replace(second=0, microsecond=0)
 
     def reading(self, offset: int, soil: float, pump: bool = False) -> SensorData:
         return SensorData.objects.create(
-            greenhouse=self.greenhouse,
+            owner=self.owner,
             recorded_at=self.start + timedelta(seconds=offset),
             soil_moisture=soil,
             temperature=28.0,
@@ -48,7 +49,7 @@ class LiveEstimationTests(TestCase):
         self.reading(70, 57.0)
 
         latest = ensure_recent_window_estimations(
-            greenhouse=self.greenhouse,
+            owner=self.owner,
             step_seconds=60,
             horizon_steps=2,
             end_time=self.start + timedelta(seconds=120),
@@ -62,7 +63,7 @@ class LiveEstimationTests(TestCase):
         live = ensure_estimation_for_reading(self.reading(5, 60.0))
         self.reading(40, 54.0)
         window = ensure_recent_window_estimations(
-            greenhouse=self.greenhouse,
+            owner=self.owner,
             step_seconds=60,
             horizon_steps=1,
             end_time=self.start + timedelta(seconds=60),

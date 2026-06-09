@@ -361,7 +361,7 @@ class GreenhouseControlProfileSerializer(serializers.ModelSerializer):
         model = GreenhouseControlProfile
         fields = [
             "id",
-            "greenhouse",
+            "owner",
             "crop_name",
             "crop_kc",
             *FAO56_PHYSICAL_FIELDS,
@@ -382,7 +382,7 @@ class GreenhouseControlProfileSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "greenhouse", "theta_fc", "theta_wp", "created_at", "updated_at"]
+        read_only_fields = ["id", "owner", "theta_fc", "theta_wp", "created_at", "updated_at"]
 
     def validate(self, attrs):
         initial_keys = set(getattr(self, "initial_data", {}) or {})
@@ -477,7 +477,7 @@ class AMPCRecommendationSerializer(serializers.ModelSerializer):
         model = AMPCRecommendation
         fields = [
             "id",
-            "greenhouse",
+            "owner",
             "sensor_data",
             "estimation",
             "device_command",
@@ -531,7 +531,9 @@ class LegacyAMPCRecommendationSerializer(serializers.ModelSerializer):
 
 
 class IngestReadingSerializer(serializers.Serializer):
-    greenhouse_id = serializers.IntegerField(required=False, min_value=1)
+    owner_id = serializers.IntegerField(required=False, min_value=1)
+    admin_id = serializers.IntegerField(required=False, min_value=1)
+    user_id = serializers.IntegerField(required=False, min_value=1)
     recorded_at = serializers.DateTimeField(required=False)
     soil_moisture = serializers.FloatField(required=False, allow_null=True)
     temperature = serializers.FloatField(required=False, allow_null=True)

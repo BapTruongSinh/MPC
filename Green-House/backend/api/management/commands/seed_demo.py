@@ -6,7 +6,7 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from api.ampc import default_greenhouse
+from api.ampc import default_control_owner
 from api.models import Alert, DeviceCommand, DeviceState, SensorData
 
 
@@ -17,7 +17,7 @@ class Command(BaseCommand):
         now_local = timezone.localtime()
         today = now_local.date()
         tz = timezone.get_current_timezone()
-        greenhouse = default_greenhouse()
+        owner = default_control_owner()
 
         for device_code, is_on in [
             ('esp32-main', True),
@@ -39,7 +39,7 @@ class Command(BaseCommand):
 
         Alert.objects.all().delete()
         DeviceCommand.objects.all().delete()
-        SensorData.objects.filter(greenhouse=greenhouse).delete()
+        SensorData.objects.filter(owner=owner).delete()
 
         samples = [
             ('08:10', Decimal('27.8'), Decimal('74.0'), Decimal('32.0'), Decimal('48.0'), 180),
@@ -60,7 +60,7 @@ class Command(BaseCommand):
 
             created.append(
                 SensorData.objects.create(
-                    greenhouse=greenhouse,
+                    owner=owner,
                     temperature=temp,
                     humidity=hum,
                     light=light_pct,

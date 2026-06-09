@@ -26,9 +26,9 @@ def _mpc_is_enabled() -> bool:
 
 
 def _profile_for(reading: SensorData) -> GreenhouseControlProfile | None:
-    if reading.greenhouse_id is None:
+    if reading.owner_id is None:
         return GreenhouseControlProfile.objects.filter(singleton_key='main').first()
-    return GreenhouseControlProfile.objects.filter(greenhouse=reading.greenhouse).first()
+    return GreenhouseControlProfile.objects.filter(owner=reading.owner).first()
 
 
 def _pump_is_on() -> bool:

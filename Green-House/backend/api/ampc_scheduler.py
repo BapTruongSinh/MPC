@@ -11,7 +11,8 @@ from django.db import OperationalError, ProgrammingError, close_old_connections,
 from django.utils import timezone
 
 from .ampc import run_auto_recommendation
-from .models import AMPCSchedulerState, Greenhouse, GreenhouseControlProfile
+from .models import AMPCSchedulerState, GreenhouseControlProfile
+from .user_resources import default_owner, ensure_user_control_profile
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,7 @@ def get_scheduler_state() -> AMPCSchedulerState:
 def _active_interval_seconds() -> int:
     step_seconds = (
         GreenhouseControlProfile.objects
-        .filter(greenhouse__is_active=True)
+        .exclude(owner__isnull=True)
         .order_by('step_seconds')
         .values_list('step_seconds', flat=True)
         .first()
@@ -87,14 +88,23 @@ def _state_filter(state_id: int | None) -> dict:
 
 
 def _run_recommendations() -> tuple[str, str]:
-    greenhouses = list(Greenhouse.objects.filter(is_active=True).order_by('id')) or [None]
+    owners = list(
+        GreenhouseControlProfile.objects
+        .exclude(owner__isnull=True)
+        .select_related('owner')
+        .order_by('owner_id')
+    )
+    if not owners:
+        owner = default_owner()
+        ensure_user_control_profile(owner)
+        owners = [ensure_user_control_profile(owner)]
     recommendations = [
-        run_auto_recommendation(create_command_if_auto=True, greenhouse=greenhouse)
-        for greenhouse in greenhouses
+        run_auto_recommendation(create_command_if_auto=True, owner=profile.owner)
+        for profile in owners
     ]
     unsafe = [item for item in recommendations if item.safety_status != 'safe']
     if not unsafe:
-        return f'{len(recommendations)} greenhouse safe', ''
+        return f'{len(recommendations)} owner safe', ''
     error = '; '.join((item.reason or item.safety_status)[:120] for item in unsafe[:3])
     return f'{len(unsafe)}/{len(recommendations)} unsafe', error
 

@@ -13,9 +13,9 @@ from mpc.solver import ScipyMpcSolver
 
 from .estimation import ensure_estimation_for_reading, ensure_recent_window_estimations, latest_estimation
 from .et0 import ET0Reading, OpenMeteoError, get_hourly_et0
-from .models import AMPCRecommendation, ControlState, EstimationCycle, Greenhouse, GreenhouseControlProfile, SensorData
+from .models import AMPCRecommendation, ControlState, EstimationCycle, GreenhouseControlProfile, SensorData
 from .services import enqueue_device_command, notify_pending_commands
-from .user_resources import default_owner, ensure_user_greenhouse_config
+from .user_resources import control_owner, ensure_user_control_profile
 
 PROFILE_SNAPSHOT_FIELDS = (
     'crop_name', 'crop_kc', 'latitude', 'longitude', 'soil_type', 'theta_fc',
@@ -26,17 +26,14 @@ PROFILE_SNAPSHOT_FIELDS = (
 )
 
 
-def default_greenhouse(user=None) -> Greenhouse:
-    owner = user if getattr(user, 'is_authenticated', False) else default_owner()
-    return ensure_user_greenhouse_config(owner)[0]
+def default_control_owner(user=None):
+    owner = control_owner(user)
+    ensure_user_control_profile(owner)
+    return owner
 
 
-def get_greenhouse_control_profile(user=None, *, greenhouse: Greenhouse | None = None) -> GreenhouseControlProfile:
-    greenhouse = greenhouse or default_greenhouse(user)
-    return GreenhouseControlProfile.objects.get_or_create(
-        greenhouse=greenhouse,
-        defaults={'singleton_key': f'gh-{greenhouse.pk}'},
-    )[0]
+def get_control_profile(user=None, *, owner=None) -> GreenhouseControlProfile:
+    return ensure_user_control_profile(owner or default_control_owner(user))
 
 
 def profile_to_config(profile: GreenhouseControlProfile, *, et0_hour_mm: float = 0.6) -> ControllerConfig:
@@ -80,10 +77,10 @@ def profile_snapshot(profile: GreenhouseControlProfile) -> dict:
     return snapshot
 
 
-def latest_recommendation(*, greenhouse: Greenhouse | None = None) -> AMPCRecommendation | None:
+def latest_recommendation(*, owner=None) -> AMPCRecommendation | None:
     queryset = AMPCRecommendation.objects
-    if greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
+    if owner is not None:
+        queryset = queryset.filter(owner=owner)
     return queryset.order_by('-created_at', '-id').first()
 
 
@@ -100,21 +97,21 @@ def _uses_raw_fallback(cycle: EstimationCycle) -> bool:
     return posterior_too_far or uncertainty_too_high
 
 
-def _latest_estimation(greenhouse: Greenhouse, config: ControllerConfig, now: datetime) -> EstimationCycle | None:
+def _latest_estimation(owner, config: ControllerConfig, now: datetime) -> EstimationCycle | None:
     estimation = ensure_recent_window_estimations(
-        greenhouse=greenhouse,
+        owner=owner,
         step_seconds=config.step_seconds,
         horizon_steps=config.horizon_steps,
         end_time=now,
-    ) or latest_estimation(greenhouse=greenhouse)
+    ) or latest_estimation(owner=owner)
     if estimation is not None:
         return estimation
-    reading = SensorData.objects.filter(greenhouse=greenhouse).order_by('-recorded_at', '-id').first()
+    reading = SensorData.objects.filter(owner=owner).order_by('-recorded_at', '-id').first()
     return ensure_estimation_for_reading(reading) if reading is not None else None
 
 
-def _controller_state(estimation: EstimationCycle, greenhouse: Greenhouse) -> ControllerState:
-    previous = latest_recommendation(greenhouse=greenhouse)
+def _controller_state(estimation: EstimationCycle, owner) -> ControllerState:
+    previous = latest_recommendation(owner=owner)
     return ControllerState(
         timestamp=estimation.sample_ts,
         kf_x_posterior=None if _uses_raw_fallback(estimation) else estimation.kf_x_posterior,
@@ -190,13 +187,13 @@ def _persist(
     sensor = None
     if estimation is not None:
         sensor = SensorData.objects.filter(
-            greenhouse=profile.greenhouse,
+            owner=profile.owner,
             recorded_at=estimation.sample_ts,
         ).order_by('-id').first()
     control = ControlState.objects.get_or_create(singleton_key='main')[0]
     return AMPCRecommendation.objects.create(
         sensor_data=sensor,
-        greenhouse=profile.greenhouse,
+        owner=profile.owner,
         estimation=estimation,
         mode=control.mode,
         pump_seconds=float(recommendation.pump_seconds),
@@ -268,10 +265,10 @@ def run_auto_recommendation(
     *,
     create_command_if_auto: bool = True,
     user=None,
-    greenhouse: Greenhouse | None = None,
+    owner=None,
 ) -> AMPCRecommendation:
-    greenhouse = greenhouse or default_greenhouse(user)
-    profile = get_greenhouse_control_profile(greenhouse=greenhouse)
+    owner = owner or default_control_owner(user)
+    profile = get_control_profile(owner=owner)
     now = timezone.now()
 
     try:
@@ -279,13 +276,13 @@ def run_auto_recommendation(
     except ValueError as exc:
         return _persist_failure(profile, f'invalid_fao_config:{exc}', status='config_error')
 
-    estimation = _latest_estimation(greenhouse, config, now)
+    estimation = _latest_estimation(owner, config, now)
     if estimation is None:
         return _persist_failure(profile, 'missing_estimation', config=config)
-    state = _controller_state(estimation, greenhouse)
+    state = _controller_state(estimation, owner)
 
     try:
-        et0 = get_hourly_et0(now, step_seconds=config.step_seconds, greenhouse=greenhouse)
+        et0 = get_hourly_et0(now, step_seconds=config.step_seconds, owner=owner)
         config = profile_to_config(profile, et0_hour_mm=et0.et0_hour_mm)
     except OpenMeteoError as exc:
         return _persist_failure(
