@@ -14,7 +14,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
-from .models import GreenhouseControlProfile
+from .models import Greenhouse, GreenhouseControlProfile
 
 
 logger = logging.getLogger(__name__)
@@ -103,6 +103,7 @@ def get_hourly_et0(
     when: datetime,
     *,
     step_seconds: int,
+    greenhouse: Greenhouse | None = None,
     client: OpenMeteoClient | None = None,
     now: datetime | None = None,
 ) -> ET0Result:
@@ -110,7 +111,7 @@ def get_hourly_et0(
     current_time = _aware_utc(now or timezone.now())
 
     try:
-        latitude, longitude = _greenhouse_coordinates()
+        latitude, longitude = _greenhouse_coordinates(greenhouse=greenhouse)
         step_seconds = _validate_step_seconds(step_seconds)
     except ValueError as exc:
         return ET0Failure(
@@ -171,9 +172,20 @@ def get_hourly_et0(
     return _reading_from_cache(entry, requested_hour, step_seconds, source='open_meteo')
 
 
-def _greenhouse_coordinates() -> tuple[float, float]:
+def _greenhouse_coordinates(
+    *,
+    greenhouse: Greenhouse | None = None,
+) -> tuple[float, float]:
     """Lấy toạ độ từ singleton GreenhouseControlProfile."""
-    profile, _ = GreenhouseControlProfile.objects.get_or_create(singleton_key='main')
+    if greenhouse is not None:
+        profile = GreenhouseControlProfile.objects.filter(greenhouse=greenhouse).first()
+        if profile is None:
+            profile, _ = GreenhouseControlProfile.objects.get_or_create(
+                greenhouse=greenhouse,
+                defaults={'singleton_key': f'gh-{greenhouse.pk}'},
+            )
+    else:
+        profile, _ = GreenhouseControlProfile.objects.get_or_create(singleton_key='main')
     latitude = _finite_float('latitude', profile.latitude)
     longitude = _finite_float('longitude', profile.longitude)
     if not -90.0 <= latitude <= 90.0:

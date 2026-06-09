@@ -15,16 +15,41 @@ class TimeStampedModel(models.Model):
 
 
 FAO56_SOIL_PRESETS = {
-    'sand': {'theta_fc': 0.10, 'theta_wp': 0.04, 'theta_sat': 0.45},
-    'light_loam': {'theta_fc': 0.15, 'theta_wp': 0.06, 'theta_sat': 0.45},
-    'loam': {'theta_fc': 0.32, 'theta_wp': 0.15, 'theta_sat': 0.45},
-    'clay_loam': {'theta_fc': 0.35, 'theta_wp': 0.23, 'theta_sat': 0.45},
+    'sand': {'theta_fc': 0.10, 'theta_wp': 0.04},
+    'light_loam': {'theta_fc': 0.15, 'theta_wp': 0.06},
+    'loam': {'theta_fc': 0.32, 'theta_wp': 0.15},
+    'clay_loam': {'theta_fc': 0.35, 'theta_wp': 0.23},
 }
 
 FAO56_SOIL_TYPE_CHOICES = [
     (soil_type, soil_type.replace('_', ' ').title())
     for soil_type in FAO56_SOIL_PRESETS
 ]
+
+
+class Greenhouse(TimeStampedModel):
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='greenhouses',
+    )
+    name = models.CharField(max_length=120, default='Main greenhouse')
+    location = models.CharField(max_length=255, blank=True)
+    is_active = models.BooleanField(default=True)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        db_table = 'greenhouses'
+        ordering = ['id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['owner', 'name'],
+                name='uq_greenhouse_owner_name',
+            ),
+        ]
+
+    def __str__(self):
+        return f'{self.name}<{self.owner_id}>'
 
 
 class ExperimentRun(TimeStampedModel):
@@ -41,6 +66,14 @@ class ExperimentRun(TimeStampedModel):
     run_type = models.CharField(max_length=20, choices=RunType.choices, default=RunType.LIVE)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.RUNNING)
     dataset_source = models.CharField(max_length=255, blank=True)
+    greenhouse = models.ForeignKey(
+        Greenhouse,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name='runs',
+        db_constraint=False,
+    )
     started_at = models.DateTimeField(default=timezone.now)
     completed_at = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True)
@@ -61,7 +94,7 @@ class ExperimentConfig(TimeStampedModel):
     R0 = models.FloatField(default=1.0)
     R_min = models.FloatField(default=0.01)
     R_max = models.FloatField(default=25.0)
-    alpha = models.FloatField(default=0.05)
+    forgetting_factor_b = models.FloatField(default=0.95)
     raw_config_json = models.JSONField(default=dict, blank=True)
 
     class Meta:
@@ -125,6 +158,14 @@ class DeviceState(TimeStampedModel):
 
 
 class SensorData(TimeStampedModel):
+    greenhouse = models.ForeignKey(
+        Greenhouse,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='sensor_readings',
+        db_constraint=False,
+    )
     temperature = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     humidity = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     light = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
@@ -162,6 +203,14 @@ class EstimationCycle(TimeStampedModel):
     cycle_index = models.PositiveIntegerField(db_index=True)
     run = models.ForeignKey(
         ExperimentRun,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='estimation_cycles',
+        db_constraint=False,
+    )
+    greenhouse = models.ForeignKey(
+        Greenhouse,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -282,7 +331,6 @@ class ControlProfile(TimeStampedModel):
 
     pump_min_seconds = models.FloatField(default=0.0)
     pump_max_seconds = models.FloatField(default=300.0)
-    pump_grid_seconds = models.FloatField(default=30.0)
     soft_daily_pump_cap_seconds = models.FloatField(default=1800.0)
 
     weight_band = models.FloatField(default=10.0)
@@ -291,9 +339,6 @@ class ControlProfile(TimeStampedModel):
     weight_daily = models.FloatField(default=2.0)
     weight_terminal = models.FloatField(default=20.0)
 
-    adaptive_enabled = models.BooleanField(default=True)
-    adaptive_bias_window = models.PositiveIntegerField(default=12)
-    adaptive_max_abs_bias = models.FloatField(default=5.0)
     stale_after_seconds = models.PositiveIntegerField(default=600)
 
     actuator_enabled = models.BooleanField(default=False)
@@ -306,9 +351,16 @@ class ControlProfile(TimeStampedModel):
         return f'ControlProfile<{self.crop_name}>'
 
 
-# ── GreenhouseControlProfile: singleton, không còn FK greenhouse ──
 class GreenhouseControlProfile(TimeStampedModel):
     singleton_key = models.CharField(max_length=20, unique=True, default='main')
+    greenhouse = models.OneToOneField(
+        Greenhouse,
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name='control_profile',
+        db_constraint=False,
+    )
     crop_name = models.CharField(max_length=100, default='Default crop')
     crop_kc = models.FloatField(default=1.0)
     latitude = models.FloatField(default=16.0471)
@@ -316,7 +368,6 @@ class GreenhouseControlProfile(TimeStampedModel):
     soil_type = models.CharField(max_length=32, choices=FAO56_SOIL_TYPE_CHOICES, default='loam')
     theta_fc = models.FloatField(default=0.32)
     theta_wp = models.FloatField(default=0.15)
-    theta_sat = models.FloatField(default=0.45)
     root_depth_m = models.FloatField(default=0.30)
     depletion_fraction_p = models.FloatField(default=0.5)
     pump_efficiency = models.FloatField(default=0.8)
@@ -330,7 +381,6 @@ class GreenhouseControlProfile(TimeStampedModel):
 
     pump_min_seconds = models.FloatField(default=0.0)
     pump_max_seconds = models.FloatField(default=300.0)
-    pump_grid_seconds = models.FloatField(default=30.0)
     soft_daily_pump_cap_seconds = models.FloatField(default=1800.0)
 
     cost_band_violation = models.FloatField(default=10.0)
@@ -339,9 +389,6 @@ class GreenhouseControlProfile(TimeStampedModel):
     cost_daily_cap_excess = models.FloatField(default=2.0)
     cost_terminal_band_violation = models.FloatField(default=20.0)
 
-    adaptive_enabled = models.BooleanField(default=True)
-    adaptive_bias_window = models.PositiveIntegerField(default=12)
-    adaptive_max_abs_bias = models.FloatField(default=5.0)
     safety_stale_after_seconds = models.PositiveIntegerField(default=600)
 
     actuator_enabled = models.BooleanField(default=False)
@@ -357,7 +404,7 @@ class GreenhouseControlProfile(TimeStampedModel):
         return bool(self.actuator_enabled and self.actuator_url)
 
     def __str__(self):
-        return f'GreenhouseControlProfile<{self.singleton_key}>'
+        return f'GreenhouseControlProfile<{self.greenhouse_id or self.singleton_key}>'
 
 
 class Alert(TimeStampedModel):
@@ -433,6 +480,14 @@ class AMPCRecommendation(TimeStampedModel):
         on_delete=models.SET_NULL,
         related_name='ampc_recommendations',
     )
+    greenhouse = models.ForeignKey(
+        Greenhouse,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name='ampc_recommendations',
+        db_constraint=False,
+    )
     run = models.ForeignKey(
         ExperimentRun,
         null=True,
@@ -464,8 +519,6 @@ class AMPCRecommendation(TimeStampedModel):
     objective_cost = models.FloatField(default=0.0)
     safety_status = models.CharField(max_length=40, default='pump_off_failsafe')
     reason = models.CharField(max_length=255, blank=True)
-    bias_correction = models.FloatField(default=0.0)
-    bias_window_count = models.PositiveIntegerField(default=0)
     used_today_pump_seconds = models.FloatField(default=0.0)
     command_created = models.BooleanField(default=False)
     actuator_status = models.CharField(

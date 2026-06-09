@@ -39,7 +39,6 @@ const sampleProfile = {
   soil_type: "loam",
   theta_fc: 0.32,
   theta_wp: 0.15,
-  theta_sat: 0.45,
   root_depth_m: 0.3,
   depletion_fraction_p: 0.5,
   pump_efficiency: 0.8,
@@ -51,16 +50,12 @@ const sampleProfile = {
   horizon_steps: 12,
   pump_min_seconds: 0,
   pump_max_seconds: 300,
-  pump_grid_seconds: 30,
   soft_daily_pump_cap_seconds: 1800,
   weight_band: 10,
   weight_water: 0.2,
   weight_switch: 0.5,
   weight_daily: 2,
   weight_terminal: 20,
-  adaptive_enabled: false,
-  adaptive_bias_window: 12,
-  adaptive_max_abs_bias: 5,
   stale_after_seconds: 600,
   actuator_enabled: false,
   updated_at: "2026-05-12T00:00:00Z",
@@ -88,8 +83,8 @@ try {
   const { AutoSettingsForm } = autoSettingsModule;
   const {
     FaoAuditPanel,
-    buildAmpcError,
     buildForecastChartData,
+    buildMpcError,
     describeFaoStressStatus,
   } = forecastModule;
 
@@ -101,22 +96,16 @@ try {
       soil_type: "light_loam",
       theta_fc: 0.15,
       theta_wp: 0.06,
-      theta_sat: 0.45,
     },
     "soil preset must update theta fields at runtime",
   );
 
-  const editedAfterPreset = {
-    ...applySoilPreset(sampleProfile, "clay_loam"),
-    theta_fc: 0.36,
-    theta_wp: 0.24,
-    theta_sat: 0.46,
-  };
+  const editedAfterPreset = applySoilPreset(sampleProfile, "clay_loam");
   const payload = buildAutoSettingsPayload(editedAfterPreset);
   assert.equal(payload.soil_type, "clay_loam");
-  assert.equal(payload.theta_fc, 0.36);
-  assert.equal(payload.theta_wp, 0.24);
-  assert.equal(payload.theta_sat, 0.46);
+  assert.equal(payload.theta_fc, undefined, "save payload should derive theta_fc from soil_type");
+  assert.equal(payload.theta_wp, undefined, "save payload should derive theta_wp from soil_type");
+  assert.equal(payload.pump_max_seconds, undefined, "save payload should derive pump_max_seconds from step_seconds");
   assert.equal(payload.crop_name, undefined, "save payload should not send display-only crop_name");
   assert.equal(payload.updated_at, undefined, "save payload should not send read-only updated_at");
 
@@ -151,7 +140,6 @@ try {
       onSave: () => undefined,
       onNumberChange: () => undefined,
       onSoilTypeChange: () => undefined,
-      onAdaptiveEnabledChange: () => undefined,
       onActuatorEnabledChange: () => undefined,
     }),
   );
@@ -174,8 +162,6 @@ try {
     objective_cost: 1.25,
     safety_status: "safe",
     reason: "ok",
-    bias_correction: 0,
-    bias_window_count: 0,
     used_today_pump_seconds: 45,
     command_created: false,
     actuator_status: "disabled",
@@ -190,14 +176,12 @@ try {
     ...sampleRecommendation,
     state_snapshot: {
       fao56: {
-        initial_theta: 0.315,
         initial_dr: 1.5,
         taw: 51,
         raw: 25.5,
         ks: 1,
         et0_step: 0.05,
         etc_adj: 0.05,
-        irrigation_depth_mm: 19.2,
         predicted_dr: [1.5, 0],
         predicted_soil_moisture: [62, 64],
       },
@@ -216,10 +200,6 @@ try {
   assert.ok(faoMarkup.includes("Ks"), "FAO panel must render Ks diagnostic");
   assert.ok(faoMarkup.includes("ET0_step"), "FAO panel must render ET0_step diagnostic");
   assert.ok(faoMarkup.includes("ETc_adj"), "FAO panel must render ETc_adj diagnostic");
-  assert.ok(
-    faoMarkup.includes("irrigation_depth_mm"),
-    "FAO panel must render irrigation_depth_mm diagnostic",
-  );
   assert.ok(faoMarkup.includes("1.50 mm"), "FAO panel must format FAO millimeter values");
 
   const noAuditMarkup = renderToStaticMarkup(
@@ -248,16 +228,21 @@ try {
     "forecast chart must keep using recommendation.predicted_soil_moisture percent values",
   );
 
-  const ampcError = buildAmpcError(
+  const mpcError = buildMpcError(
     {
       ...sampleRecommendation,
       safety_status: "config_error",
-      reason: 'ValueError: root_depth_m must be > 0\nFile "api/ampc.py", line 134',
+      reason: 'ValueError: root_depth_m must be > 0\nFile "api/mpc.py", line 134',
     },
     null,
   );
-  assert.ok(!ampcError.includes("ValueError"), "AMPC error UI must not leak exception names");
-  assert.ok(!ampcError.includes("api/ampc.py"), "AMPC error UI must not leak backend file paths");
+  assert.ok(!mpcError.includes("ValueError"), "MPC error UI must not leak exception names");
+  assert.ok(!mpcError.includes("api/mpc.py"), "MPC error UI must not leak backend file paths");
+  assert.equal(
+    buildMpcError(sampleRecommendation, { last_status: "10/11 unsafe", last_error: "missing_estimation" }),
+    "",
+    "safe current recommendation must suppress stale scheduler errors",
+  );
 } finally {
   await vite.close();
 }

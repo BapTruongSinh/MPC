@@ -32,7 +32,7 @@ Sửa objective cost theo công thức đã chốt: water/switching normalize b�
 - [x] Logic: Công thức cost đúng với công thức owner chốt và không lệch solver/report.
 - [x] Nghiệp vụ: Band tracking vẫn dùng độ lệch khỏi band, terminal penalty vẫn giữ trạng thái cuối horizon an toàn.
 - [x] Security: Không chạm actuator secret/config nhạy cảm.
-- [x] Test chạy thực tế: MPC tests, compileall, và CLI smoke pass.
+- [x] Test chạy thực tế: MPC tests và compileall pass.
 
 ## Technical Notes
 

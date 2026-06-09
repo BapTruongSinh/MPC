@@ -123,7 +123,7 @@ python manage.py test api
 python manage.py check
 python manage.py makemigrations --check --dry-run
 python manage.py migrate --check
-python -m pip install -r requirements-local.txt --dry-run
+python -m pip install -r requirements.txt --dry-run
 ```
 
 ```powershell
@@ -146,6 +146,6 @@ python -m compileall -q Kalman\kalman MPC\mpc Green-House\backend\api Green-Hous
 - `Green-House/backend/api/models.py`: greenhouse, config, estimation, recommendation models
 - `Green-House/frontend/src/app/components/AutoSettings.tsx`: FAO profile controls and legacy dashboard settings
 - `Green-House/frontend/src/app/components/ForecastPage.tsx`: percent forecast chart and FAO audit diagnostics
-- `MPC/mpc/solver/`: grid shooting solver
+- `MPC/mpc/solver/`: scipy optimizer behind the `GridShootingSolver` compatibility API
 - `MPC/mpc/plant/arx.py`: ARX plant model
 - `MPC/mpc/config.py`: controller config and cost weights

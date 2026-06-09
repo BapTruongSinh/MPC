@@ -8,12 +8,18 @@ import pytest
 from kalman.ingestion import ProcessedRecord, RawRecord, ValidationResult
 from kalman.prediction import ARXArtifactConfig, ARXPredictionAdapter, PredictionInput
 
-_ARTIFACT = Path(__file__).parents[2] / "ARX" / "arx_model.json"
+_ARTIFACT = (
+    Path(__file__).parents[2]
+    / "ARX"
+    / "ARX_DO_BY_SELF"
+    / "result"
+    / "arx_5s_model.json"
+)
 
 
 def _processed(i: int, sm: float = 50.0) -> ProcessedRecord:
     raw = RawRecord(
-        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(minutes=i),
+        timestamp=datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=5 * i),
         soil_moisture=sm + i * 0.1,
         temperature=25.0 + i * 0.01,
         humidity=70.0,
@@ -38,13 +44,13 @@ def _processed(i: int, sm: float = 50.0) -> ProcessedRecord:
 
 
 def test_artifact_config_validates_orders_and_columns() -> None:
-    cfg = ARXArtifactConfig(na=2, nb=2, nk=1, input_cols=("Temperature",))
+    cfg = ARXArtifactConfig(na=2, nb=2, nk=1, sampling_seconds=5, input_cols=("Temperature",))
     assert cfg.min_history_len == 2
 
     with pytest.raises(ValueError):
-        ARXArtifactConfig(na=0)
+        ARXArtifactConfig(na=0, nb=2, nk=1, sampling_seconds=5)
     with pytest.raises(ValueError):
-        ARXArtifactConfig(input_cols=("Unknown",))
+        ARXArtifactConfig(na=2, nb=2, nk=1, sampling_seconds=5, input_cols=("Unknown",))
 
 
 def test_load_repo_arx_artifact() -> None:

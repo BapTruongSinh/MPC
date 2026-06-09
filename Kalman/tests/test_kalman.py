@@ -2,6 +2,8 @@
 
 from datetime import datetime, timezone
 
+import pytest
+
 from kalman.filter import AdaptiveKalmanCycle, KalmanConfig
 from kalman.ingestion import ProcessedRecord, RawRecord, ValidationResult
 from kalman.prediction import PredictionAdapter, PredictionInput, PredictionResult
@@ -63,6 +65,60 @@ def test_default_adaptive_r_cap_is_15() -> None:
     assert KalmanConfig().R_max == 15.0
 
 
+def test_iae_r_update_subtracts_prior_covariance() -> None:
+    config = KalmanConfig(
+        x0=50.0,
+        P0=1.0,
+        Q=0.25,
+        R0=4.0,
+        R_min=0.05,
+        R_max=100.0,
+        forgetting_factor_b=0.5,
+    )
+    est = AdaptiveKalmanCycle(config)
+
+    result = est.step(_record(53.0), cycle_index=0)
+
+    innovation = 3.0
+    p_prior = 1.25
+    expected_r = innovation * innovation - p_prior
+    assert result.R == pytest.approx(expected_r)
+    assert result.K == pytest.approx(p_prior / (p_prior + expected_r))
+
+
+def test_iae_uses_forgetting_factor_after_first_update() -> None:
+    config = KalmanConfig(
+        x0=50.0,
+        P0=1.0,
+        Q=0.0,
+        R0=4.0,
+        R_min=0.05,
+        R_max=100.0,
+        forgetting_factor_b=0.5,
+    )
+    est = AdaptiveKalmanCycle(config)
+    first = est.step(_record(53.0), cycle_index=0)
+    second = est.step(_record(55.0), cycle_index=1)
+
+    adaptive_gain = (1.0 - config.forgetting_factor_b) / (
+        1.0 - config.forgetting_factor_b**2
+    )
+    assert second.innovation is not None
+    expected_r = (1.0 - adaptive_gain) * first.R + adaptive_gain * (
+        second.innovation * second.innovation - second.P_prior
+    )
+    assert second.R == pytest.approx(expected_r)
+
+
+def test_small_innovation_clips_iae_r_at_min() -> None:
+    est = AdaptiveKalmanCycle(
+        KalmanConfig(x0=50.0, P0=1.0, Q=0.05, R0=1.0, R_min=0.25)
+    )
+    result = est.step(_record(50.1), cycle_index=0)
+
+    assert result.R == 0.25
+
+
 def test_large_innovation_clips_r_at_15_by_default() -> None:
     est = AdaptiveKalmanCycle(KalmanConfig(x0=50.0), adapter=FakeAdapter())
     result = est.step(_record(80.0), cycle_index=0)
@@ -71,10 +127,12 @@ def test_large_innovation_clips_r_at_15_by_default() -> None:
 
 
 def test_step_skips_missing_measurement() -> None:
-    est = AdaptiveKalmanCycle(KalmanConfig(x0=50.0))
+    config = KalmanConfig(x0=50.0, R0=2.5)
+    est = AdaptiveKalmanCycle(config)
     result = est.step(_record(None, status="skipped"), cycle_index=0)
     assert result.cycle_status == "skipped_no_measurement"
     assert result.K is None
+    assert result.R == config.R0
 
 
 def test_adapter_prediction_becomes_prior() -> None:

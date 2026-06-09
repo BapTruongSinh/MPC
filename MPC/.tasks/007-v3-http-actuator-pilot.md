@@ -42,5 +42,5 @@ Mặc dù user chọn auto execute, implementation phải có guard config expli
 | Date | Agent / Human | Event |
 |------|--------------|-------|
 | 2026-05-08 | Codex | Task created |
-| 2026-05-09 | Codex | Implemented `ActuatorConfig`, `ActuatorCommand`, HTTP actuator client, closed-loop service, CLI `closed-loop`, fake HTTP/fail-safe tests, docs, and task/TODO sync. |
+| 2026-05-09 | Codex | Implemented `ActuatorConfig`, `ActuatorCommand`, HTTP actuator client, closed-loop service, fake HTTP/fail-safe tests, docs, and task/TODO sync. |
 | 2026-05-09 | Codex | Fixed review finding: `run_closed_loop()` now validates explicit actuator config before using injected clients, so fake/test clients cannot bypass `enabled/url/token_env/token` guards. Added regression coverage. |

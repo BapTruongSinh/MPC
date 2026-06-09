@@ -7,7 +7,7 @@
 Install local dependencies from `Green-House/backend`:
 
 ```powershell
-python -m pip install -r requirements-local.txt
+python -m pip install -r requirements.txt
 ```
 
 Create/update the backend database:

@@ -112,7 +112,7 @@ INGEST_DEVICE_TOKEN = os.getenv('INGEST_DEVICE_TOKEN', 'esp32-local-token')
 APP_ZONE_ID = 1
 ARX_MODEL_PATH = os.getenv(
     'ARX_MODEL_PATH',
-    str(BASE_DIR.parent.parent / 'ARX' / 'arx_model.json'),
+    str(BASE_DIR.parent.parent / 'ARX' / 'ARX_DO_BY_SELF' / 'result' / 'arx_5s_model.json'),
 )
 APP_ZONE_NAME = 'Nhà kính chính'
 
@@ -120,8 +120,10 @@ KALMAN_LIVE_Q = float(os.getenv('KALMAN_LIVE_Q', '12.0'))
 KALMAN_LIVE_R0 = float(os.getenv('KALMAN_LIVE_R0', '1.0'))
 KALMAN_LIVE_R_MIN = float(os.getenv('KALMAN_LIVE_R_MIN', '0.25'))
 KALMAN_LIVE_R_MAX = float(os.getenv('KALMAN_LIVE_R_MAX', '4.0'))
-KALMAN_LIVE_ALPHA = float(os.getenv('KALMAN_LIVE_ALPHA', '0.5'))
-AMPC_RAW_FALLBACK_DELTA = float(os.getenv('AMPC_RAW_FALLBACK_DELTA', '8.0'))
+KALMAN_LIVE_FORGETTING_FACTOR_B = float(
+    os.getenv('KALMAN_LIVE_FORGETTING_FACTOR_B', '0.95')
+)
+MPC_RAW_FALLBACK_DELTA = float(os.getenv('MPC_RAW_FALLBACK_DELTA', '8.0'))
 KALMAN_TEST_DB_NAME = os.getenv('KALMAN_TEST_DB_NAME', 'kalman_greenhouse')
 
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')

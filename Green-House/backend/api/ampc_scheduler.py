@@ -11,7 +11,7 @@ from django.db import OperationalError, ProgrammingError, close_old_connections,
 from django.utils import timezone
 
 from .ampc import run_auto_recommendation
-from .models import AMPCSchedulerState
+from .models import AMPCSchedulerState, Greenhouse, GreenhouseControlProfile
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +35,23 @@ def get_scheduler_state() -> AMPCSchedulerState:
     return state
 
 
+def _active_interval_seconds() -> int:
+    value = (
+        GreenhouseControlProfile.objects
+        .filter(greenhouse__is_active=True)
+        .order_by('step_seconds')
+        .values_list('step_seconds', flat=True)
+        .first()
+    )
+    return int(value or DEFAULT_INTERVAL_SECONDS)
+
+
 def start_scheduler() -> AMPCSchedulerState:
     now = timezone.now()
     state = get_scheduler_state()
     state.is_enabled = True
     state.is_executing = False
-    state.interval_seconds = state.interval_seconds or DEFAULT_INTERVAL_SECONDS
+    state.interval_seconds = _active_interval_seconds()
     state.last_started_at = now
     state.next_run_at = now
     state.last_error = ''
@@ -112,18 +123,36 @@ def run_due_once(*, force: bool = False, state_id: int | None = None) -> AMPCSch
     status = ''
     error = ''
     try:
-        recommendation = run_auto_recommendation(create_command_if_auto=True)
-        status = recommendation.safety_status
-        if recommendation.safety_status != 'safe':
-            error = recommendation.reason or recommendation.safety_status
+        greenhouses = list(Greenhouse.objects.filter(is_active=True).order_by('id'))
+        if not greenhouses:
+            greenhouses = [None]
+
+        recommendations = [
+            run_auto_recommendation(
+                create_command_if_auto=True,
+                greenhouse=greenhouse,
+            )
+            for greenhouse in greenhouses
+        ]
+        unsafe = [item for item in recommendations if item.safety_status != 'safe']
+        if unsafe:
+            status = f'{len(unsafe)}/{len(recommendations)} unsafe'
+            error = '; '.join(
+                (item.reason or item.safety_status)[:120]
+                for item in unsafe[:3]
+            )
+        else:
+            status = f'{len(recommendations)} greenhouse safe'
     except Exception as exc:  # pragma: no cover
-        logger.exception('AMPC scheduler run failed')
+        logger.exception('MPC scheduler run failed')
         status = 'error'
         error = str(exc)
     finally:
         finished_at = timezone.now()
-        next_run_at = finished_at + timedelta(seconds=max(state.interval_seconds, 1))
+        interval_seconds = max(_active_interval_seconds(), 1)
+        next_run_at = finished_at + timedelta(seconds=interval_seconds)
         AMPCSchedulerState.objects.filter(pk=state.pk).update(
+            interval_seconds=interval_seconds,
             is_executing=False,
             last_run_at=finished_at,
             next_run_at=next_run_at,
@@ -159,9 +188,9 @@ def _scheduler_loop() -> None:
             close_old_connections()
             run_all_due()
         except (OperationalError, ProgrammingError):
-            logger.debug('AMPC scheduler skipped because database is not ready', exc_info=True)
+            logger.debug('MPC scheduler skipped because database is not ready', exc_info=True)
         except Exception:
-            logger.exception('AMPC scheduler loop failed')
+            logger.exception('MPC scheduler loop failed')
         finally:
             close_old_connections()
         time.sleep(POLL_SECONDS)
@@ -178,7 +207,7 @@ def start_background_scheduler() -> None:
             return
         thread = threading.Thread(
             target=_scheduler_loop,
-            name='ampc-scheduler',
+            name='mpc-scheduler',
             daemon=True,
         )
         thread.start()

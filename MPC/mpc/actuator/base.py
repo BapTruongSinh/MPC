@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from math import isfinite
 
-from mpc.types import SafetyStatus
+from mpc.core.types import SafetyStatus
 
 
 @dataclass(frozen=True)

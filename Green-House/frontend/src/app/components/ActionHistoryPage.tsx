@@ -72,7 +72,7 @@ function formatDuration(payload: any) {
 }
 
 function getCommandSource(row: DeviceCommand) {
-  if (row.payload && row.payload.source === 'ampc') {
+  if (row.payload && row.payload.source === 'mpc') {
     return { label: "Hệ thống MPC", icon: Bot, color: "text-purple-700", bg: "bg-purple-50", border: "border-purple-200" };
   }
   return { label: "Người dùng", icon: User, color: "text-blue-700", bg: "bg-blue-50", border: "border-blue-200" };

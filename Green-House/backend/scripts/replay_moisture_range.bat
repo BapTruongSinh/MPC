@@ -7,20 +7,26 @@ rem Optional overrides before running:
 rem   set API_URL=http://127.0.0.1:8000/api/ingest/readings/
 rem   set DEVICE_TOKEN=esp32-local-token
 rem   set GREENHOUSE_ID=4
-rem   set STEP_MINUTES=5
+rem   set RANGE_START=11:00
+rem   set RANGE_END=12:19
+rem   set STEP_SECONDS=5
 rem   set START_MOISTURE=65
-rem   set END_MOISTURE=53
+rem   set END_MOISTURE=55
 rem   set MOISTURE_FIELD=soil_moisture
+rem   set OVERWRITE=true
 rem   set DRY_RUN=true
 
 if not defined API_URL set "API_URL=http://127.0.0.1:8000/api/ingest/readings/"
 if not defined DEVICE_TOKEN set "DEVICE_TOKEN=esp32-local-token"
 if not defined GREENHOUSE_ID set "GREENHOUSE_ID=4"
 if not defined AUTO_MODE set "AUTO_MODE=true"
-if not defined STEP_MINUTES set "STEP_MINUTES=5"
+if not defined RANGE_START_DEFAULT set "RANGE_START_DEFAULT=11:00"
+if not defined RANGE_END_DEFAULT set "RANGE_END_DEFAULT=12:19"
+if not defined STEP_SECONDS set "STEP_SECONDS=5"
 if not defined START_MOISTURE set "START_MOISTURE=65"
-if not defined END_MOISTURE set "END_MOISTURE=53"
+if not defined END_MOISTURE set "END_MOISTURE=55"
 if not defined MOISTURE_FIELD set "MOISTURE_FIELD=soil_moisture"
+if not defined OVERWRITE set "OVERWRITE=true"
 if not defined TEMPERATURE set "TEMPERATURE=28"
 if not defined AIR_HUMIDITY set "AIR_HUMIDITY=70"
 if not defined LIGHT set "LIGHT=5500"
@@ -29,16 +35,14 @@ echo Replay sensor readings into Green-House backend.
 echo Time formats: 8h20, 08:20, 9h, 09:00
 echo.
 
-if not defined RANGE_START set /p "RANGE_START=Start time: "
+if not defined RANGE_START set /p "RANGE_START=Start time [!RANGE_START_DEFAULT!]: "
 if not defined RANGE_START (
-  echo Start time is required.
-  exit /b 1
+  set "RANGE_START=!RANGE_START_DEFAULT!"
 )
 
-if not defined RANGE_END set /p "RANGE_END=End time: "
+if not defined RANGE_END set /p "RANGE_END=End time [!RANGE_END_DEFAULT!]: "
 if not defined RANGE_END (
-  echo End time is required.
-  exit /b 1
+  set "RANGE_END=!RANGE_END_DEFAULT!"
 )
 
 set /p "START_MOISTURE_INPUT=Start moisture percent [!START_MOISTURE!]: "
@@ -116,17 +120,19 @@ $deviceToken = Get-EnvValue 'DEVICE_TOKEN' 'esp32-local-token'
 $greenhouseId = Get-EnvInt 'GREENHOUSE_ID' 4
 $autoModeRaw = (Get-EnvValue 'AUTO_MODE' 'true').Trim().ToLowerInvariant()
 $autoMode = $autoModeRaw -in @('1', 'true', 'yes', 'y')
-$stepMinutes = Get-EnvInt 'STEP_MINUTES' 5
+$overwriteRaw = (Get-EnvValue 'OVERWRITE' 'true').Trim().ToLowerInvariant()
+$overwrite = $overwriteRaw -in @('1', 'true', 'yes', 'y')
+$stepSeconds = Get-EnvInt 'STEP_SECONDS' 5
 $startMoisture = Get-EnvDouble 'START_MOISTURE' 65
-$endMoisture = Get-EnvDouble 'END_MOISTURE' 53
+$endMoisture = Get-EnvDouble 'END_MOISTURE' 55
 $moistureField = (Get-EnvValue 'MOISTURE_FIELD' 'soil_moisture').Trim().ToLowerInvariant()
 $temperature = Get-EnvDouble 'TEMPERATURE' 28
 $airHumidity = Get-EnvDouble 'AIR_HUMIDITY' 70
 $light = Get-EnvDouble 'LIGHT' 5500
 $dryRun = (Get-EnvValue 'DRY_RUN' 'false').Trim().ToLowerInvariant() -in @('1', 'true', 'yes', 'y')
 
-if ($stepMinutes -le 0) {
-    throw 'STEP_MINUTES must be greater than 0.'
+if ($stepSeconds -le 0) {
+    throw 'STEP_SECONDS must be greater than 0.'
 }
 
 if ($moistureField -notin @('soil_moisture', 'humidity', 'both')) {
@@ -144,7 +150,7 @@ if ($endAt -eq $startAt) {
 }
 
 $points = [System.Collections.Generic.List[datetime]]::new()
-for ($cursor = $startAt; $cursor -le $endAt; $cursor = $cursor.AddMinutes($stepMinutes)) {
+for ($cursor = $startAt; $cursor -le $endAt; $cursor = $cursor.AddSeconds($stepSeconds)) {
     $points.Add($cursor)
 }
 if ($points.Count -eq 0 -or $points[$points.Count - 1] -ne $endAt) {
@@ -154,7 +160,8 @@ if ($points.Count -eq 0 -or $points[$points.Count - 1] -ne $endAt) {
 Write-Host "API_URL=$apiUrl"
 Write-Host "GREENHOUSE_ID=$greenhouseId"
 Write-Host "Range=$($startAt.ToString('yyyy-MM-dd HH:mm')) -> $($endAt.ToString('yyyy-MM-dd HH:mm'))"
-Write-Host "Samples=$($points.Count), step=$stepMinutes minute(s), $moistureField=$startMoisture -> $endMoisture"
+Write-Host "Samples=$($points.Count), step=$stepSeconds second(s), $moistureField=$startMoisture -> $endMoisture"
+Write-Host "OVERWRITE=$overwrite"
 if ($dryRun) {
     Write-Host 'DRY_RUN=true, no POST requests will be sent.'
 }
@@ -176,6 +183,7 @@ for ($index = 0; $index -lt $points.Count; $index++) {
         light = $light
         soil_moisture = $soilMoisture
         auto_mode = $autoMode
+        overwrite = $overwrite
         firmware_version = 'sensor-range-replay-bat'
         device_states = [ordered]@{
             fan_on = ($temperature -ge 31)

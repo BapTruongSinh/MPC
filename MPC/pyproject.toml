@@ -5,15 +5,18 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "greenhouse-mpc"
 version = "0.1.0"
-description = "Standalone MPC/AMPC controller for the smart greenhouse demo"
+description = "Standalone FAO-56 MPC controller for the smart greenhouse demo"
 requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26.0",
+    "scipy>=1.11.0",
+]
 
 [tool.setuptools]
 packages = [
     "mpc",
     "mpc.actuator",
-    "mpc.adaptive",
-    "mpc.plant",
+    "mpc.control",
+    "mpc.core",
     "mpc.solver",
-    "mpc.simulation",
 ]

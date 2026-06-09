@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.exceptions import ValidationError
 
-from .models import Alert, ControlState, DeviceCommand, DeviceState, SensorData
+from .models import Alert, ControlState, DeviceCommand, DeviceState, EstimationCycle, Greenhouse, SensorData
 from .serializers import (
     COMMAND_STATUS_VALUES,
     DEVICE_COMMAND_TEXT_MAX_LENGTH,
@@ -21,6 +21,7 @@ from .serializers import (
     validate_json_finite,
     validate_sensor_numeric_fields,
 )
+from .user_resources import default_owner, ensure_user_greenhouse_config
 
 # ── Hằng số heartbeat (kiểm tra bằng RAM, không cần DB Device) ──
 HEARTBEAT_TIMEOUT_SECONDS = 15
@@ -28,6 +29,21 @@ HEARTBEAT_SLOW_SECONDS = 30
 
 # Trạng thái kết nối ESP32 lưu trong RAM (thay vì DB Device)
 _esp32_last_seen: dict[str, object] = {}  # device_code -> datetime
+
+
+def default_ingest_greenhouse() -> Greenhouse:
+    greenhouse, _ = ensure_user_greenhouse_config(default_owner())
+    return greenhouse
+
+
+def ingest_greenhouse(payload: dict) -> Greenhouse:
+    greenhouse_id = payload.get('greenhouse_id')
+    if greenhouse_id in (None, ''):
+        return default_ingest_greenhouse()
+    try:
+        return Greenhouse.objects.get(pk=int(greenhouse_id))
+    except (TypeError, ValueError, Greenhouse.DoesNotExist) as exc:
+        raise ValidationError({'greenhouse_id': 'greenhouse_id does not exist'}) from exc
 
 
 def _clean_limited_text(field: str, value, max_length: int) -> str:
@@ -61,6 +77,37 @@ def _to_bool(value):
     if isinstance(value, (int, float)):
         return value != 0
     return str(value).strip().lower() in {'1', 'true', 'on', 'yes'}
+
+
+def _delete_stale_window_estimations(greenhouse: Greenhouse, recorded_at):
+    """Drop cached control-step buckets that may include this raw reading."""
+    window_seconds = 24 * 60 * 60
+    EstimationCycle.objects.filter(
+        greenhouse=greenhouse,
+        source_type='live_window',
+        sample_ts__gte=recorded_at,
+        sample_ts__lte=recorded_at + timedelta(seconds=window_seconds),
+    ).delete()
+
+
+def _telemetry_payload_snapshot(payload: dict) -> dict:
+    """Persist ESP32 telemetry context needed for later control-step buckets."""
+    sensor_payload = payload.get('payload') or {}
+    snapshot = dict(sensor_payload) if isinstance(sensor_payload, dict) else {}
+    device_states = payload.get('device_states') or {}
+    snapshot['device_states'] = device_states
+    snapshot['sensor_errors'] = payload.get('sensor_errors') or {}
+    snapshot['metadata'] = payload.get('metadata') or {}
+
+    for field in ('mode', 'auto_mode', 'firmware_version'):
+        if field in payload:
+            snapshot[field] = payload[field]
+
+    for field in ('fan', 'pump', 'light_device', 'mist'):
+        if field in payload:
+            snapshot[field] = _to_bool(payload[field])
+
+    return validate_json_finite(snapshot, 'payload')
 
 
 def _push_ws_group(group_name: str, event_type: str, data: dict):
@@ -332,6 +379,7 @@ def check_environmental_alerts(payload: dict, device_code: str = 'esp32-main'):
 
 def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
     validate_sensor_numeric_fields(payload)
+    greenhouse = ingest_greenhouse(payload)
     sensor_payload = validate_json_finite(payload.get('payload') or {}, 'payload')
     metadata = validate_json_finite(payload.get('metadata') or {}, 'metadata')
     sensor_errors = _clean_sensor_errors(payload.get('sensor_errors'))
@@ -360,12 +408,22 @@ def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
     recorded_at = parse_datetime(recorded_raw) if isinstance(recorded_raw, str) else recorded_raw
     recorded_at = recorded_at or timezone.now()
 
+    if _to_bool(payload.get('overwrite')):
+        SensorData.objects.filter(greenhouse=greenhouse, recorded_at=recorded_at).delete()
+        EstimationCycle.objects.filter(
+            greenhouse=greenhouse,
+            sample_ts=recorded_at,
+            source_type='live',
+        ).delete()
+        _delete_stale_window_estimations(greenhouse, recorded_at)
+
     reading = SensorData.objects.create(
+        greenhouse=greenhouse,
         temperature=payload.get('temperature'),
         humidity=payload.get('humidity'),
         light=payload.get('light'),
         soil_moisture=payload.get('soil_moisture'),
-        payload=sensor_payload,
+        payload=_telemetry_payload_snapshot(payload),
         recorded_at=recorded_at,
     )
 

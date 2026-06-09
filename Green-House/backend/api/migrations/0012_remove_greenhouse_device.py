@@ -52,6 +52,19 @@ def add_column_if_not_exists(table, column, sql_def):
     return _add
 
 
+def drop_foreign_keys_on_column(cursor, table, column):
+    cursor.execute("""
+        SELECT constraint_name
+        FROM information_schema.KEY_COLUMN_USAGE
+        WHERE table_schema = DATABASE()
+          AND table_name = %s
+          AND column_name = %s
+          AND referenced_table_name IS NOT NULL
+    """, [table, column])
+    for (constraint_name,) in cursor.fetchall():
+        cursor.execute(f"ALTER TABLE `{table}` DROP FOREIGN KEY `{constraint_name}`")
+
+
 def create_devicecommand_table(apps, schema_editor):
     db = schema_editor.connection
     with db.cursor() as cursor:
@@ -70,6 +83,37 @@ def create_devicecommand_table(apps, schema_editor):
                 INDEX api_devicecommand_device_code_idx (device_code)
             )
         """)
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE table_schema = DATABASE()
+            AND table_name = 'api_devicecommand'
+            AND column_name = 'device_code'
+        """)
+        if cursor.fetchone()[0] == 0:
+            cursor.execute(
+                "ALTER TABLE api_devicecommand "
+                "ADD COLUMN device_code VARCHAR(50) NOT NULL DEFAULT 'legacy'"
+            )
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE table_schema = DATABASE()
+            AND table_name = 'api_devicecommand'
+            AND column_name = 'device_id'
+        """)
+        if cursor.fetchone()[0] > 0:
+            drop_foreign_keys_on_column(cursor, 'api_devicecommand', 'device_id')
+            cursor.execute("ALTER TABLE api_devicecommand DROP COLUMN device_id")
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.STATISTICS
+            WHERE table_schema = DATABASE()
+            AND table_name = 'api_devicecommand'
+            AND index_name = 'api_devicecommand_device_code_idx'
+        """)
+        if cursor.fetchone()[0] == 0:
+            cursor.execute(
+                "CREATE INDEX api_devicecommand_device_code_idx "
+                "ON api_devicecommand (device_code)"
+            )
 
 
 def create_devicestate_table(apps, schema_editor):
@@ -89,10 +133,44 @@ def create_devicestate_table(apps, schema_editor):
                 UNIQUE KEY uq_devicestate_device_code (device_code)
             )
         """)
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE table_schema = DATABASE()
+            AND table_name = 'api_devicestate'
+            AND column_name = 'device_code'
+        """)
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("ALTER TABLE api_devicestate ADD COLUMN device_code VARCHAR(50) NULL")
+            cursor.execute(
+                "UPDATE api_devicestate "
+                "SET device_code = CONCAT('legacy-', id) "
+                "WHERE device_code IS NULL OR device_code = ''"
+            )
+            cursor.execute("ALTER TABLE api_devicestate MODIFY device_code VARCHAR(50) NOT NULL")
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE table_schema = DATABASE()
+            AND table_name = 'api_devicestate'
+            AND column_name = 'device_id'
+        """)
+        if cursor.fetchone()[0] > 0:
+            drop_foreign_keys_on_column(cursor, 'api_devicestate', 'device_id')
+            cursor.execute("ALTER TABLE api_devicestate DROP COLUMN device_id")
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.STATISTICS
+            WHERE table_schema = DATABASE()
+            AND table_name = 'api_devicestate'
+            AND index_name = 'uq_devicestate_device_code'
+        """)
+        if cursor.fetchone()[0] == 0:
+            cursor.execute(
+                "CREATE UNIQUE INDEX uq_devicestate_device_code "
+                "ON api_devicestate (device_code)"
+            )
 
 
 def seed_singleton_key(apps, schema_editor):
-    """Set singleton_key on existing GreenhouseControlProfile rows."""
+    """Seed one main profile and keep extra legacy rows uniquely addressable."""
     db = schema_editor.connection
     with db.cursor() as cursor:
         cursor.execute("""
@@ -104,10 +182,22 @@ def seed_singleton_key(apps, schema_editor):
         col_exists = cursor.fetchone()[0] > 0
         if col_exists:
             cursor.execute("""
-                UPDATE greenhouse_control_profiles
-                SET singleton_key = 'main'
-                WHERE singleton_key = '' OR singleton_key IS NULL
+                SELECT id
+                FROM greenhouse_control_profiles
+                ORDER BY id
             """)
+            ids = [row[0] for row in cursor.fetchall()]
+            for index, row_id in enumerate(ids):
+                key = 'main' if index == 0 else f'legacy-{row_id}'
+                cursor.execute(
+                    """
+                    UPDATE greenhouse_control_profiles
+                    SET singleton_key = %s
+                    WHERE id = %s
+                      AND (singleton_key = '' OR singleton_key IS NULL)
+                    """,
+                    [key, row_id],
+                )
 
 
 class Migration(migrations.Migration):
@@ -213,11 +303,17 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='greenhousecontrolprofile',
             name='singleton_key',
-            field=models.CharField(default='main', max_length=20, unique=True),
+            field=models.CharField(blank=True, default='', max_length=20),
         ),
 
         # ── 8. Seed singleton_key cho records đã tồn tại ──
         migrations.RunPython(seed_singleton_key, migrations.RunPython.noop),
+
+        migrations.AlterField(
+            model_name='greenhousecontrolprofile',
+            name='singleton_key',
+            field=models.CharField(default='main', max_length=20, unique=True),
+        ),
 
         # ── 9. Xóa model Device và Greenhouse (chỉ update state, DB không có) ──
         migrations.SeparateDatabaseAndState(

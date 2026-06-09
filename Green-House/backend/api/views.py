@@ -44,12 +44,12 @@ from .serializers import (
     GreenhouseControlProfileSerializer,
     IngestReadingSerializer,
     LegacyAMPCRecommendationSerializer,
-    LiveSampleSerializer,
     LoginSerializer,
     RunListSerializer,
     SensorDataSerializer,
 )
 from .ampc import (
+    default_greenhouse,
     get_greenhouse_control_profile,
     latest_recommendation,
     run_auto_recommendation,
@@ -91,7 +91,6 @@ def _legacy_auto_settings_payload(profile):
         'soil_type': profile.soil_type,
         'theta_fc': profile.theta_fc,
         'theta_wp': profile.theta_wp,
-        'theta_sat': profile.theta_sat,
         'root_depth_m': profile.root_depth_m,
         'depletion_fraction_p': profile.depletion_fraction_p,
         'pump_efficiency': profile.pump_efficiency,
@@ -103,16 +102,12 @@ def _legacy_auto_settings_payload(profile):
         'horizon_steps': profile.horizon_steps,
         'pump_min_seconds': profile.pump_min_seconds,
         'pump_max_seconds': profile.pump_max_seconds,
-        'pump_grid_seconds': profile.pump_grid_seconds,
         'soft_daily_pump_cap_seconds': profile.soft_daily_pump_cap_seconds,
         'weight_band': profile.cost_band_violation,
         'weight_water': profile.cost_water_use,
         'weight_switch': profile.cost_switching,
         'weight_daily': profile.cost_daily_cap_excess,
         'weight_terminal': profile.cost_terminal_band_violation,
-        'adaptive_enabled': profile.adaptive_enabled,
-        'adaptive_bias_window': profile.adaptive_bias_window,
-        'adaptive_max_abs_bias': profile.adaptive_max_abs_bias,
         'stale_after_seconds': profile.safety_stale_after_seconds,
         'actuator_enabled': profile.actuator_enabled,
         'updated_at': profile.updated_at,
@@ -120,6 +115,12 @@ def _legacy_auto_settings_payload(profile):
 
 
 def _legacy_auto_settings_patch(data) -> dict:
+    derived_fields = sorted(set(data) & {'theta_fc', 'theta_wp', 'pump_max_seconds'})
+    if derived_fields:
+        raise ValidationError({
+            field: f'{field} is derived from other settings and cannot be set directly'
+            for field in derived_fields
+        })
     mapping = {
         'weight_band': 'cost_band_violation',
         'weight_water': 'cost_water_use',
@@ -130,13 +131,10 @@ def _legacy_auto_settings_patch(data) -> dict:
     }
     allowed = {
         'crop_name', 'crop_kc', 'latitude', 'longitude', 'soil_type',
-        'theta_fc', 'theta_wp', 'theta_sat', 'root_depth_m',
-        'depletion_fraction_p', 'pump_efficiency', 'pump_flow_lps',
+        'root_depth_m', 'depletion_fraction_p', 'pump_efficiency', 'pump_flow_lps',
         'irrigation_area_m2', 'target_low', 'target_high',
         'step_seconds', 'horizon_steps', 'pump_min_seconds',
-        'pump_max_seconds', 'pump_grid_seconds', 'soft_daily_pump_cap_seconds',
-        'adaptive_enabled', 'adaptive_bias_window', 'adaptive_max_abs_bias',
-        'actuator_enabled',
+        'soft_daily_pump_cap_seconds', 'actuator_enabled',
     }
     patch = {}
     for key, value in data.items():
@@ -144,6 +142,8 @@ def _legacy_auto_settings_patch(data) -> dict:
             patch[mapping[key]] = value
         elif key in allowed:
             patch[key] = value
+    if 'step_seconds' in patch:
+        patch['pump_max_seconds'] = patch['step_seconds']
     return patch
 
 
@@ -204,8 +204,16 @@ class SetupView(APIView):
 
 class DashboardOverviewView(APIView):
     def get(self, request):
+        greenhouse = default_greenhouse(request.user)
         esp32_online = is_esp32_online()
-        latest = SensorData.objects.order_by('-recorded_at', '-id').first() if esp32_online else None
+        latest = (
+            SensorData.objects
+            .filter(greenhouse=greenhouse)
+            .order_by('-recorded_at', '-id')
+            .first()
+            if esp32_online
+            else None
+        )
         recent_alerts = Alert.objects.order_by('-happened_at', '-id')[:5]
         control = _get_control_state()
         device_states = DeviceState.objects.exclude(device_code='esp32-main')
@@ -226,7 +234,13 @@ class LatestReadingView(APIView):
     def get(self, request):
         if not is_esp32_online():
             return Response(None)
-        latest = SensorData.objects.order_by('-recorded_at', '-id').first()
+        greenhouse = default_greenhouse(request.user)
+        latest = (
+            SensorData.objects
+            .filter(greenhouse=greenhouse)
+            .order_by('-recorded_at', '-id')
+            .first()
+        )
         if not latest:
             return Response(None)
         return Response(SensorDataSerializer(latest).data)
@@ -243,10 +257,15 @@ class ChartView(APIView):
         if not is_esp32_online():
             return Response({'metric': metric, 'points': []})
 
+        greenhouse = default_greenhouse(request.user)
         since = timezone.now() - timedelta(hours=hours)
         points = []
 
-        for item in SensorData.objects.filter(recorded_at__gte=since).order_by('recorded_at', 'id'):
+        for item in (
+            SensorData.objects
+            .filter(greenhouse=greenhouse, recorded_at__gte=since)
+            .order_by('recorded_at', 'id')
+        ):
             value = getattr(item, metric, None)
             points.append({'recorded_at': item.recorded_at, 'value': value})
 
@@ -255,10 +274,11 @@ class ChartView(APIView):
 
 class SensorHistoryView(APIView):
     def get(self, request):
+        greenhouse = default_greenhouse(request.user)
         page = _query_int(request, 'page', 1, min_value=1, max_value=1_000_000)
         page_size = _query_int(request, 'page_size', 20, min_value=5, max_value=100)
 
-        queryset = SensorData.objects.order_by('-recorded_at', '-id')
+        queryset = SensorData.objects.filter(greenhouse=greenhouse).order_by('-recorded_at', '-id')
 
         hours_raw = request.query_params.get('hours')
         date_from_raw = request.query_params.get('date_from')
@@ -334,47 +354,111 @@ class ControlModeView(APIView):
         return Response(ControlStateSerializer(control).data)
 
 
+def _forecast_history_from_cycle(cycle: EstimationCycle) -> dict:
+    return {
+        'id': cycle.id,
+        'temperature': cycle.raw_temperature,
+        'humidity': cycle.raw_humidity,
+        'light': cycle.raw_light,
+        'soil_moisture': cycle.raw_soil_moisture,
+        'payload': {'source': cycle.source_type},
+        'recorded_at': cycle.sample_ts,
+    }
+
+
+def _sampled_sensor_history_rows(greenhouse, rec, latest_sensor):
+    if latest_sensor is None:
+        return []
+
+    step_seconds = int(getattr(rec, 'step_seconds', None) or 300)
+    step_seconds = max(1, step_seconds)
+    anchor = getattr(getattr(rec, 'estimation', None), 'sample_ts', None) or latest_sensor.recorded_at
+    rows = []
+
+    for index in range(5, -1, -1):
+        target_ts = anchor - timedelta(seconds=step_seconds * index)
+        window_start = target_ts - timedelta(seconds=step_seconds)
+        reading = (
+            SensorData.objects
+            .filter(
+                greenhouse=greenhouse,
+                recorded_at__gt=window_start,
+                recorded_at__lte=target_ts,
+            )
+            .order_by('-recorded_at', '-id')
+            .first()
+        )
+        if reading is not None:
+            rows.append(SensorDataSerializer(reading).data)
+    return rows
+
+
+def _forecast_history_rows(greenhouse, rec):
+    latest_sensor = (
+        SensorData.objects
+        .filter(greenhouse=greenhouse)
+        .order_by('-recorded_at', '-id')
+        .first()
+    )
+    sensor_rows = _sampled_sensor_history_rows(greenhouse, rec, latest_sensor)
+    if sensor_rows:
+        return sensor_rows
+
+    anchor = getattr(rec, 'estimation', None) if rec is not None else None
+    if anchor is not None and anchor.source_type == 'live_window':
+        cycles = (
+            EstimationCycle.objects
+            .filter(
+                greenhouse=greenhouse,
+                source_type='live_window',
+                sample_ts__lte=anchor.sample_ts,
+            )
+            .exclude(raw_soil_moisture__isnull=True)
+            .exclude(raw_temperature__isnull=True)
+            .exclude(raw_humidity__isnull=True)
+            .exclude(raw_light__isnull=True)
+            .order_by('-sample_ts', '-id')[:6]
+        )
+        return [_forecast_history_from_cycle(cycle) for cycle in reversed(list(cycles))]
+
+    history_rows = (
+        SensorData.objects
+        .filter(greenhouse=greenhouse)
+        .order_by('-recorded_at', '-id')[:6]
+    )
+    return [SensorDataSerializer(item).data for item in reversed(list(history_rows))]
+
+
 class ForecastView(APIView):
     def get(self, request):
-        estimation = latest_estimation()
-        rec = latest_recommendation()
+        greenhouse = default_greenhouse(request.user)
+        estimation = latest_estimation(greenhouse=greenhouse)
+        rec = latest_recommendation(greenhouse=greenhouse)
         scheduler_state = get_scheduler_state()
 
-        latest_sensor = SensorData.objects.order_by('-recorded_at', '-id').first()
-        use_estimation_history = (
-            estimation is not None
-            and (latest_sensor is None or estimation.sample_ts > latest_sensor.recorded_at)
+        latest_sensor = (
+            SensorData.objects
+            .filter(greenhouse=greenhouse)
+            .order_by('-recorded_at', '-id')
+            .first()
         )
-        if use_estimation_history:
-            cycles = (
-                EstimationCycle.objects
-                .exclude(raw_soil_moisture__isnull=True)
-                .exclude(raw_temperature__isnull=True)
-                .exclude(raw_humidity__isnull=True)
-                .exclude(raw_light__isnull=True)
-                .order_by('-sample_ts', '-id')[:6]
-            )
-            history = [EstimationCycleSerializer(c).data for c in reversed(list(cycles))]
-        else:
-            history_rows = SensorData.objects.order_by('-recorded_at', '-id')[:6]
-            history = [SensorDataSerializer(item).data for item in reversed(list(history_rows))]
 
         return Response({
             'latest': SensorDataSerializer(latest_sensor).data if latest_sensor else None,
             'estimation': EstimationCycleSerializer(estimation).data if estimation else None,
             'recommendation': AMPCRecommendationSerializer(rec).data if rec else None,
             'scheduler': AMPCSchedulerStateSerializer(scheduler_state).data,
-            'history': history,
+            'history': _forecast_history_rows(greenhouse, rec),
         })
 
 
 class AutoSettingsView(APIView):
     def get(self, request):
-        profile = get_greenhouse_control_profile()
+        profile = get_greenhouse_control_profile(request.user)
         return Response(_legacy_auto_settings_payload(profile))
 
     def patch(self, request):
-        profile = get_greenhouse_control_profile()
+        profile = get_greenhouse_control_profile(request.user)
         serializer = GreenhouseControlProfileSerializer(
             profile,
             data=_legacy_auto_settings_patch(request.data),
@@ -387,7 +471,10 @@ class AutoSettingsView(APIView):
 
 class AutoRecommendationView(APIView):
     def post(self, request):
-        recommendation = run_auto_recommendation(create_command_if_auto=True)
+        recommendation = run_auto_recommendation(
+            create_command_if_auto=True,
+            user=request.user,
+        )
         status_code = status.HTTP_200_OK if recommendation.safety_status == 'safe' else status.HTTP_202_ACCEPTED
         return Response(AMPCRecommendationSerializer(recommendation).data, status=status_code)
 
@@ -442,13 +529,13 @@ class RunMetricsView(APIView):
 
 
 class ControlProfileView(APIView):
-    """Endpoint để xem/sửa cấu hình điều khiển (singleton)."""
+    """Endpoint de xem/sua cau hinh dieu khien theo greenhouse cua user."""
     def get(self, request):
-        profile = get_greenhouse_control_profile()
+        profile = get_greenhouse_control_profile(request.user)
         return Response(GreenhouseControlProfileSerializer(profile).data)
 
     def patch(self, request):
-        profile = get_greenhouse_control_profile()
+        profile = get_greenhouse_control_profile(request.user)
         serializer = GreenhouseControlProfileSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -457,7 +544,8 @@ class ControlProfileView(APIView):
 
 class AMPCLatestRecommendationView(APIView):
     def get(self, request):
-        rec = latest_recommendation()
+        greenhouse = default_greenhouse(request.user)
+        rec = latest_recommendation(greenhouse=greenhouse)
         if rec is None:
             return Response({'detail': 'recommendation_not_found'}, status=status.HTTP_404_NOT_FOUND)
         return Response(LegacyAMPCRecommendationSerializer(rec).data)
@@ -613,46 +701,6 @@ class TelegramSettingsView(APIView):
             settings.TELEGRAM_CHAT_ID = chat_id
 
         return Response({'detail': 'Đã cập nhật cấu hình Telegram thành công.', 'chat_id': chat_id})
-
-
-class LiveIngestSamplesView(APIView):
-    """Ingest live sample từ thiết bị (không cần Device token nữa)."""
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        serializer = LiveSampleSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        data = serializer.validated_data
-
-        run = generics.get_object_or_404(ExperimentRun, pk=data['run_id'])
-
-        payload = {
-            'source': 'live_sample',
-            'drip': data.get('drip'),
-            'mist': data.get('mist'),
-            'fan': data.get('fan'),
-        }
-        reading = SensorData.objects.create(
-            temperature=data.get('temperature'),
-            humidity=data.get('humidity'),
-            light=data.get('light'),
-            soil_moisture=data.get('soil_moisture'),
-            payload=payload,
-            recorded_at=data['timestamp'],
-        )
-        estimation = ensure_estimation_for_reading(reading, run=run)
-
-        return Response({
-            'id': estimation.id,
-            'run_id': run.id,
-            'cycle_index': estimation.cycle_index,
-            'preprocess_status': estimation.preprocess_status,
-            'cycle_status': estimation.cycle_status,
-            'adaptive_status': estimation.adaptive_status,
-            'kf_x_posterior': estimation.kf_x_posterior,
-            'kf_innovation': estimation.kf_innovation,
-            'sample_ts': estimation.sample_ts,
-        }, status=status.HTTP_201_CREATED)
 
 
 class IngestReadingsView(APIView):

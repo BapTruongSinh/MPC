@@ -22,14 +22,13 @@ from .models import (
     SensorData,
 )
 
-FAO56_THETA_FIELDS = ("theta_fc", "theta_wp", "theta_sat")
+FAO56_THETA_FIELDS = ("theta_fc", "theta_wp")
 FAO56_PHYSICAL_FIELDS = [
     "latitude",
     "longitude",
     "soil_type",
     "theta_fc",
     "theta_wp",
-    "theta_sat",
     "root_depth_m",
     "depletion_fraction_p",
     "pump_efficiency",
@@ -41,7 +40,6 @@ FAO56_NUMERIC_DEFAULTS = {
     "longitude": 108.2068,
     "theta_fc": 0.32,
     "theta_wp": 0.15,
-    "theta_sat": 0.45,
     "root_depth_m": 0.30,
     "depletion_fraction_p": 0.5,
     "pump_efficiency": 0.8,
@@ -56,15 +54,12 @@ GREENHOUSE_RUNTIME_NUMERIC_DEFAULTS = {
     "horizon_steps": 12,
     "pump_min_seconds": 0.0,
     "pump_max_seconds": 300.0,
-    "pump_grid_seconds": 30.0,
     "soft_daily_pump_cap_seconds": 1800.0,
     "cost_band_violation": 10.0,
     "cost_water_use": 0.2,
     "cost_switching": 0.5,
     "cost_daily_cap_excess": 2.0,
     "cost_terminal_band_violation": 20.0,
-    "adaptive_bias_window": 12,
-    "adaptive_max_abs_bias": 5.0,
     "safety_stale_after_seconds": 600,
     "actuator_timeout_seconds": 5.0,
 }
@@ -76,15 +71,12 @@ LEGACY_RUNTIME_NUMERIC_DEFAULTS = {
     "horizon_steps": 12,
     "pump_min_seconds": 0.0,
     "pump_max_seconds": 300.0,
-    "pump_grid_seconds": 30.0,
     "soft_daily_pump_cap_seconds": 1800.0,
     "weight_band": 10.0,
     "weight_water": 0.2,
     "weight_switch": 0.5,
     "weight_daily": 2.0,
     "weight_terminal": 20.0,
-    "adaptive_bias_window": 12,
-    "adaptive_max_abs_bias": 5.0,
     "stale_after_seconds": 600,
 }
 SENSOR_FIELD_BOUNDS = {
@@ -92,11 +84,6 @@ SENSOR_FIELD_BOUNDS = {
     "humidity": (0.0, 100.0),
     "temperature": (-99.99, 99.99),
     "light": (0.0, 99999999.99),
-}
-ACTUATOR_FIELD_BOUNDS = {
-    "drip": (0.0, 1.0),
-    "mist": (0.0, 1.0),
-    "fan": (0.0, 1.0),
 }
 DEVICE_FIRMWARE_MAX_LENGTH = 50
 DEVICE_COMMAND_TEXT_MAX_LENGTH = 50
@@ -143,10 +130,6 @@ def validate_sensor_numeric_fields(attrs):
     _validate_numeric_bounds(attrs, SENSOR_FIELD_BOUNDS)
 
 
-def validate_actuator_numeric_fields(attrs):
-    _validate_numeric_bounds(attrs, ACTUATOR_FIELD_BOUNDS)
-
-
 def validate_json_finite(value, field_name: str):
     def walk(node, path):
         if isinstance(node, dict):
@@ -184,10 +167,8 @@ def _apply_soil_preset(attrs):
         allowed = ", ".join(sorted(FAO56_SOIL_PRESETS))
         raise serializers.ValidationError({"soil_type": f"soil_type must be one of: {allowed}"})
 
-    explicit_theta = {field: attrs[field] for field in FAO56_THETA_FIELDS if field in attrs}
     attrs["soil_type"] = soil_type
     attrs.update(FAO56_SOIL_PRESETS[soil_type])
-    attrs.update(explicit_theta)
     return attrs
 
 
@@ -196,7 +177,6 @@ def _validate_fao56_physical_config(instance, attrs):
     longitude = _finite_fao_value(instance, attrs, "longitude")
     theta_fc = _finite_fao_value(instance, attrs, "theta_fc")
     theta_wp = _finite_fao_value(instance, attrs, "theta_wp")
-    theta_sat = _finite_fao_value(instance, attrs, "theta_sat")
     root_depth_m = _finite_fao_value(instance, attrs, "root_depth_m")
     depletion_fraction_p = _finite_fao_value(instance, attrs, "depletion_fraction_p")
     pump_efficiency = _finite_fao_value(instance, attrs, "pump_efficiency")
@@ -211,9 +191,9 @@ def _validate_fao56_physical_config(instance, attrs):
         raise serializers.ValidationError({"latitude": "latitude must satisfy -90 <= value <= 90"})
     if not (-180.0 <= longitude <= 180.0):
         raise serializers.ValidationError({"longitude": "longitude must satisfy -180 <= value <= 180"})
-    if not (0.0 <= theta_wp < theta_fc < theta_sat <= 0.8):
+    if not (0.0 <= theta_wp < theta_fc <= 0.8):
         raise serializers.ValidationError({
-            "theta_fc": "theta values must satisfy 0 <= theta_wp < theta_fc < theta_sat <= 0.8"
+            "theta_fc": "theta values must satisfy 0 <= theta_wp < theta_fc <= 0.8"
         })
     if root_depth_m <= 0:
         raise serializers.ValidationError({"root_depth_m": "root_depth_m must be > 0"})
@@ -242,10 +222,7 @@ def _validate_runtime_common(
     horizon_steps = _finite_runtime_value(instance, attrs, "horizon_steps", defaults)
     pump_min = _finite_runtime_value(instance, attrs, "pump_min_seconds", defaults)
     pump_max = _finite_runtime_value(instance, attrs, "pump_max_seconds", defaults)
-    pump_grid = _finite_runtime_value(instance, attrs, "pump_grid_seconds", defaults)
     soft_daily_cap = _finite_runtime_value(instance, attrs, "soft_daily_pump_cap_seconds", defaults)
-    adaptive_bias_window = _finite_runtime_value(instance, attrs, "adaptive_bias_window", defaults)
-    adaptive_max_abs_bias = _finite_runtime_value(instance, attrs, "adaptive_max_abs_bias", defaults)
     stale_after_seconds = _finite_runtime_value(instance, attrs, stale_field, defaults)
 
     if crop_kc < 0:
@@ -268,14 +245,14 @@ def _validate_runtime_common(
                 "depletion_fraction_p; narrow the band or increase depletion_fraction_p"
             )
         })
-    if step_seconds <= 0:
-        raise serializers.ValidationError({"step_seconds": "step_seconds must be > 0"})
-    if horizon_steps < 1:
+    if step_seconds < 5 or int(step_seconds) != step_seconds or int(step_seconds) % 5 != 0:
+        raise serializers.ValidationError({
+            "step_seconds": "step_seconds must be an integer multiple of 5 seconds"
+        })
+    if horizon_steps < 1 or int(horizon_steps) != horizon_steps:
         raise serializers.ValidationError({"horizon_steps": "horizon_steps must be >= 1"})
     if pump_min < 0 or pump_max <= pump_min:
         raise serializers.ValidationError("pump_max_seconds must be greater than pump_min_seconds")
-    if pump_grid <= 0 or pump_grid > pump_max:
-        raise serializers.ValidationError("pump_grid_seconds must be > 0 and <= pump_max_seconds")
     if soft_daily_cap <= 0:
         raise serializers.ValidationError({
             "soft_daily_pump_cap_seconds": "soft_daily_pump_cap_seconds must be > 0"
@@ -284,10 +261,6 @@ def _validate_runtime_common(
         value = _finite_runtime_value(instance, attrs, field, defaults)
         if value < 0:
             raise serializers.ValidationError({field: f"{field} must be >= 0"})
-    if adaptive_bias_window < 1:
-        raise serializers.ValidationError({"adaptive_bias_window": "adaptive_bias_window must be >= 1"})
-    if adaptive_max_abs_bias < 0:
-        raise serializers.ValidationError({"adaptive_max_abs_bias": "adaptive_max_abs_bias must be >= 0"})
     if stale_after_seconds <= 0:
         raise serializers.ValidationError({stale_field: f"{stale_field} must be > 0"})
     if actuator_timeout_field is not None:
@@ -475,16 +448,12 @@ class ControlProfileSerializer(serializers.ModelSerializer):
             "horizon_steps",
             "pump_min_seconds",
             "pump_max_seconds",
-            "pump_grid_seconds",
             "soft_daily_pump_cap_seconds",
             "weight_band",
             "weight_water",
             "weight_switch",
             "weight_daily",
             "weight_terminal",
-            "adaptive_enabled",
-            "adaptive_bias_window",
-            "adaptive_max_abs_bias",
             "stale_after_seconds",
             "actuator_enabled",
             "updated_at",
@@ -514,6 +483,7 @@ class GreenhouseControlProfileSerializer(serializers.ModelSerializer):
         model = GreenhouseControlProfile
         fields = [
             "id",
+            "greenhouse",
             "crop_name",
             "crop_kc",
             *FAO56_PHYSICAL_FIELDS,
@@ -525,25 +495,32 @@ class GreenhouseControlProfileSerializer(serializers.ModelSerializer):
             "step_seconds",
             "horizon_steps",
             "pump_min_seconds",
-            "pump_grid_seconds",
             "cost_band_violation",
             "cost_water_use",
             "cost_switching",
             "cost_daily_cap_excess",
             "cost_terminal_band_violation",
-            "adaptive_enabled",
-            "adaptive_bias_window",
-            "adaptive_max_abs_bias",
             "safety_stale_after_seconds",
             "actuator_timeout_seconds",
             "actuator_configured",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "greenhouse", "theta_fc", "theta_wp", "created_at", "updated_at"]
 
     def validate(self, attrs):
+        initial_keys = set(getattr(self, "initial_data", {}) or {})
+        manual_derived = sorted(initial_keys & set(FAO56_THETA_FIELDS))
+        if "pump_max_seconds" in initial_keys and "step_seconds" not in initial_keys:
+            manual_derived.append("pump_max_seconds")
+        if manual_derived:
+            raise serializers.ValidationError({
+                field: f"{field} is derived from other settings and cannot be set directly"
+                for field in manual_derived
+            })
         attrs = _apply_soil_preset(attrs)
+        if "step_seconds" in attrs:
+            attrs["pump_max_seconds"] = attrs["step_seconds"]
         _validate_runtime_common(
             self.instance,
             attrs,
@@ -567,6 +544,7 @@ class AMPCRecommendationSerializer(serializers.ModelSerializer):
         model = AMPCRecommendation
         fields = [
             "id",
+            "greenhouse",
             "sensor_data",
             "estimation",
             "device_command",
@@ -578,8 +556,6 @@ class AMPCRecommendationSerializer(serializers.ModelSerializer):
             "objective_cost",
             "safety_status",
             "reason",
-            "bias_correction",
-            "bias_window_count",
             "used_today_pump_seconds",
             "command_created",
             "actuator_status",
@@ -610,8 +586,6 @@ class LegacyAMPCRecommendationSerializer(serializers.ModelSerializer):
             "cost",
             "safety_status",
             "reason",
-            "bias_correction",
-            "bias_window_count",
             "used_today_pump_seconds",
             "actuator",
             "state_snapshot",
@@ -626,24 +600,8 @@ class LegacyAMPCRecommendationSerializer(serializers.ModelSerializer):
         }
 
 
-class LiveSampleSerializer(serializers.Serializer):
-    run_id = serializers.IntegerField()
-    timestamp = serializers.DateTimeField()
-    soil_moisture = serializers.FloatField(required=False, allow_null=True)
-    temperature = serializers.FloatField(required=False, allow_null=True)
-    humidity = serializers.FloatField(required=False, allow_null=True)
-    light = serializers.FloatField(required=False, allow_null=True)
-    drip = serializers.FloatField(required=False, allow_null=True)
-    mist = serializers.FloatField(required=False, allow_null=True)
-    fan = serializers.FloatField(required=False, allow_null=True)
-
-    def validate(self, attrs):
-        validate_sensor_numeric_fields(attrs)
-        validate_actuator_numeric_fields(attrs)
-        return attrs
-
-
 class IngestReadingSerializer(serializers.Serializer):
+    greenhouse_id = serializers.IntegerField(required=False, min_value=1)
     recorded_at = serializers.DateTimeField(required=False)
     soil_moisture = serializers.FloatField(required=False, allow_null=True)
     temperature = serializers.FloatField(required=False, allow_null=True)
@@ -658,6 +616,7 @@ class IngestReadingSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=DEVICE_FIRMWARE_MAX_LENGTH,
     )
+    overwrite = serializers.BooleanField(required=False)
     auto_mode = serializers.BooleanField(required=False)
     mode = serializers.CharField(required=False, allow_blank=True)
     manual_reason = serializers.CharField(

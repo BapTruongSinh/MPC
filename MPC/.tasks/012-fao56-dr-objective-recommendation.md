@@ -59,7 +59,7 @@ The solver should still return `predicted_soil_moisture` as sensor percent for c
   - `etc_adj`
   - `irrigation_depth_mm`
   - predicted `Dr` series
-- [x] CLI/demo defaults still run without requiring Django.
+- [x] Package-level tests run without requiring Django.
 - [x] Tests prove wet profiles recommend zero or near-zero irrigation and dry/stressed profiles recommend non-zero irrigation when pump limits allow it.
 
 ## Completion Gates
@@ -67,7 +67,7 @@ The solver should still return `predicted_soil_moisture` as sensor percent for c
 - [x] Logic: Solver transition uses `Dr_next = clamp(Dr + ETc_adj - I, 0, TAW)` consistently across the horizon.
 - [x] Nghiệp vụ: RAW acts as the stress threshold; dashboard percent output remains a display compatibility layer.
 - [x] Security: Fail-closed behavior keeps pump seconds at `0` for invalid config/state/ET0 and does not bypass actuator safeguards.
-- [x] Test chạy thực tế: `python -m pytest MPC\tests -q`, `python -m compileall -q MPC\mpc`, and relevant CLI smoke commands pass.
+- [x] Test chạy thực tế: `python -m pytest MPC\tests -q`, `python -m compileall -q MPC\mpc`.
 
 ## Technical Notes
 
@@ -87,5 +87,5 @@ The solver should still return `predicted_soil_moisture` as sensor percent for c
 | Date | Agent / Human | Event |
 |------|--------------|-------|
 | 2026-05-12 | Codex | Fixed review finding: simulation `objective_cost` now uses FAO `Dr/RAW` stress/overwater scoring instead of legacy sensor band scoring, with regression assertions for the exact formula. |
-| 2026-05-12 | Codex | Switched grid solver objective to FAO `Dr/TAW/RAW`, added recommendation `fao56` audit details, updated tests/docs, and passed MPC gates plus CLI smoke commands. |
+| 2026-05-12 | Codex | Switched solver objective to FAO `Dr/TAW/RAW`, added recommendation `fao56` audit details, updated tests/docs, and passed MPC gates. |
 | 2026-05-12 | Codex | Task created from FAO-56 water-balance plan |
