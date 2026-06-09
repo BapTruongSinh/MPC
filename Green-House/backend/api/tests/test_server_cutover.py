@@ -96,6 +96,41 @@ class GreenHouseRuntimeApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('step_seconds', response.json())
 
+    def test_threshold_settings_returns_defaults(self):
+        response = self.client.get('/api/settings/thresholds/')
+
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload['thresh_temp_fan_on'], 32.0)
+        self.assertEqual(payload['thresh_soil_pump_on'], 35.0)
+
+    def test_threshold_settings_updates_current_user_greenhouse(self):
+        response = self.client.patch(
+            '/api/settings/thresholds/',
+            {'thresh_soil_pump_on': 38.0, 'thresh_soil_pump_off': 42.0},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        profile = get_greenhouse_control_profile(self.user)
+        self.assertEqual(profile.thresh_soil_pump_on, 38.0)
+        self.assertEqual(profile.thresh_soil_pump_off, 42.0)
+
+        other = User.objects.create_user(username='threshold-other', password='pw')
+        other_profile = get_greenhouse_control_profile(other)
+        self.assertEqual(other_profile.thresh_soil_pump_on, 35.0)
+        self.assertEqual(other_profile.thresh_soil_pump_off, 40.0)
+
+    def test_threshold_settings_rejects_invalid_hysteresis(self):
+        response = self.client.patch(
+            '/api/settings/thresholds/',
+            {'thresh_soil_pump_on': 45.0, 'thresh_soil_pump_off': 40.0},
+            format='json',
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('thresh_soil_pump_off', response.json())
+
     def test_ingest_payload_persists_esp32_device_snapshot(self):
         reading = ingest_sensor_payload({
             'soil_moisture': 55.0,

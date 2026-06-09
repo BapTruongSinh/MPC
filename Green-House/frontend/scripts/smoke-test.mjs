@@ -18,6 +18,7 @@ const requiredPaths = [
   "/dashboard/overview/",
   "/sensor-readings/latest/",
   "/forecast/",
+  "/settings/thresholds/",
   "/auto-settings/",
   "/control/auto-recommendation/",
   "/devices/",

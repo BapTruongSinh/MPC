@@ -414,6 +414,64 @@ class GreenhouseControlProfileSerializer(serializers.ModelSerializer):
         return attrs
 
 
+ESP32_THRESHOLD_FIELDS = [
+    "thresh_temp_fan_on",
+    "thresh_temp_fan_off",
+    "thresh_hum_fan_on",
+    "thresh_hum_fan_off",
+    "thresh_hum_mist_on",
+    "thresh_hum_mist_off",
+    "thresh_soil_pump_on",
+    "thresh_soil_pump_off",
+    "thresh_light_on_ldr",
+    "thresh_light_off_ldr",
+]
+
+
+class ESP32ThresholdSerializer(serializers.ModelSerializer):
+    """Serializer riêng cho ngưỡng điều khiển ESP32."""
+
+    class Meta:
+        model = GreenhouseControlProfile
+        fields = ESP32_THRESHOLD_FIELDS + ["updated_at"]
+
+    def validate(self, attrs):
+        t_on = attrs.get("thresh_temp_fan_on", getattr(self.instance, "thresh_temp_fan_on", 32.0))
+        t_off = attrs.get("thresh_temp_fan_off", getattr(self.instance, "thresh_temp_fan_off", 30.0))
+        if t_on <= t_off:
+            raise serializers.ValidationError(
+                {"thresh_temp_fan_on": "Ngưỡng bật quạt (nhiệt độ) phải lớn hơn ngưỡng tắt"}
+            )
+
+        h_fan_on = attrs.get("thresh_hum_fan_on", getattr(self.instance, "thresh_hum_fan_on", 80.0))
+        h_fan_off = attrs.get("thresh_hum_fan_off", getattr(self.instance, "thresh_hum_fan_off", 70.0))
+        if h_fan_on <= h_fan_off:
+            raise serializers.ValidationError(
+                {"thresh_hum_fan_on": "Ngưỡng bật quạt (độ ẩm) phải lớn hơn ngưỡng tắt"}
+            )
+
+        h_mist_on = attrs.get("thresh_hum_mist_on", getattr(self.instance, "thresh_hum_mist_on", 55.0))
+        h_mist_off = attrs.get("thresh_hum_mist_off", getattr(self.instance, "thresh_hum_mist_off", 65.0))
+        if h_mist_on >= h_mist_off:
+            raise serializers.ValidationError(
+                {"thresh_hum_mist_off": "Ngưỡng tắt phun sương phải lớn hơn ngưỡng bật"}
+            )
+
+        s_on = attrs.get("thresh_soil_pump_on", getattr(self.instance, "thresh_soil_pump_on", 35.0))
+        s_off = attrs.get("thresh_soil_pump_off", getattr(self.instance, "thresh_soil_pump_off", 40.0))
+        if s_on >= s_off:
+            raise serializers.ValidationError(
+                {"thresh_soil_pump_off": "Ngưỡng tắt bơm phải lớn hơn ngưỡng bật"}
+            )
+
+        l_on = attrs.get("thresh_light_on_ldr", getattr(self.instance, "thresh_light_on_ldr", 20))
+        l_off = attrs.get("thresh_light_off_ldr", getattr(self.instance, "thresh_light_off_ldr", 40))
+        if l_on >= l_off:
+            raise serializers.ValidationError(
+                {"thresh_light_off_ldr": "Ngưỡng tắt đèn (LDR) phải lớn hơn ngưỡng bật"}
+            )
+        return attrs
+
 class AMPCRecommendationSerializer(serializers.ModelSerializer):
     class Meta:
         model = AMPCRecommendation

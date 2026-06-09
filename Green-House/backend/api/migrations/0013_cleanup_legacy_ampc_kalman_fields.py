@@ -15,7 +15,10 @@ def column_exists(cursor, table_name, column_name):
     return cursor.fetchone()[0] > 0
 
 
-def drop_checks_referencing(cursor, table_name, column_names):
+def drop_checks_referencing(connection, cursor, table_name, column_names):
+    if connection.mysql_is_mariadb:
+        return
+
     cursor.execute(
         """
         SELECT tc.CONSTRAINT_NAME, cc.CHECK_CLAUSE
@@ -73,6 +76,7 @@ def rename_column_if_exists(cursor, table_name, old_name, new_name, sql_type):
 def cleanup_legacy_columns(apps, schema_editor):
     with schema_editor.connection.cursor() as cursor:
         drop_checks_referencing(
+            schema_editor.connection,
             cursor,
             'greenhouse_control_profiles',
             [
@@ -99,6 +103,12 @@ def cleanup_legacy_columns(apps, schema_editor):
             'double precision NOT NULL',
         )
 
+        drop_checks_referencing(
+            schema_editor.connection,
+            cursor,
+            'api_controlprofile',
+            ['pump_grid_seconds', 'adaptive_bias_window', 'adaptive_max_abs_bias'],
+        )
         drop_column_if_exists(cursor, 'api_controlprofile', 'pump_grid_seconds')
         rename_column_if_exists(
             cursor,
@@ -115,6 +125,7 @@ def cleanup_legacy_columns(apps, schema_editor):
             'double precision NOT NULL',
         )
 
+        drop_checks_referencing(schema_editor.connection, cursor, 'experiment_configs', ['alpha'])
         rename_column_if_exists(
             cursor,
             'experiment_configs',
@@ -123,6 +134,12 @@ def cleanup_legacy_columns(apps, schema_editor):
             'double precision NOT NULL',
         )
 
+        drop_checks_referencing(
+            schema_editor.connection,
+            cursor,
+            'api_ampcrecommendation',
+            ['bias_correction', 'bias_window_count'],
+        )
         drop_column_if_exists(cursor, 'api_ampcrecommendation', 'bias_correction')
         rename_column_if_exists(
             cursor,

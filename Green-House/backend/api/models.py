@@ -252,6 +252,18 @@ class GreenhouseControlProfile(TimeStampedModel):
     actuator_bearer_token_env = models.CharField(max_length=120, blank=True, null=True)
     actuator_timeout_seconds = models.FloatField(default=5.0)
 
+    # ── Ngưỡng điều khiển tự động ESP32 ──────────────────────────────────────
+    thresh_temp_fan_on = models.FloatField(default=32.0)
+    thresh_temp_fan_off = models.FloatField(default=30.0)
+    thresh_hum_fan_on = models.FloatField(default=80.0)
+    thresh_hum_fan_off = models.FloatField(default=70.0)
+    thresh_hum_mist_on = models.FloatField(default=55.0)
+    thresh_hum_mist_off = models.FloatField(default=65.0)
+    thresh_soil_pump_on = models.FloatField(default=35.0)
+    thresh_soil_pump_off = models.FloatField(default=40.0)
+    thresh_light_on_ldr = models.IntegerField(default=20)
+    thresh_light_off_ldr = models.IntegerField(default=40)
+
     class Meta:
         db_table = 'greenhouse_control_profiles'
 
