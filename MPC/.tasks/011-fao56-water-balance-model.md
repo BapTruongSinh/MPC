@@ -19,7 +19,7 @@ blocked_by: []
 
 Implement the pure MPC FAO-56 water-balance primitives from `Green-House/docs/plan/2026-05-12-fao-56-ampc-water-balance.md`.
 
-This task does not wire Green-House runtime yet. It creates the reusable package layer that both CLI tests and Django integration can call.
+This task does not wire Green-House runtime yet. It creates the reusable package layer that Django integration and tests can call.
 
 ## Acceptance Criteria
 

@@ -46,7 +46,6 @@ export type AutoSettingsFormProps = {
   onSave: () => void;
   onNumberChange: (field: AutoSettingsNumericField, value: string) => void;
   onSoilTypeChange: (soilType: FaoSoilType) => void;
-  onAdaptiveEnabledChange: (checked: boolean) => void;
   onActuatorEnabledChange: (checked: boolean) => void;
 };
 
@@ -68,7 +67,7 @@ export function AutoSettings() {
       })
       .catch(() => {
         if (!cancelled) {
-          setError("Không tải được cấu hình AMPC.");
+          setError("Không tải được cấu hình MPC.");
         }
       })
       .finally(() => {
@@ -106,7 +105,7 @@ export function AutoSettings() {
     try {
       const response = await updateAutoSettings(buildAutoSettingsPayload(profile));
       setProfile(response.data);
-      setMessage("Đã lưu cấu hình AMPC.");
+      setMessage("Đã lưu cấu hình MPC.");
     } catch (err) {
       setError(readAutoSettingsError(err));
     } finally {
@@ -117,7 +116,7 @@ export function AutoSettings() {
   if (loading) {
     return (
       <div className="elevated-card rounded-3xl p-5" data-testid="auto-settings-loading">
-        <p className="text-slate-500" style={{ fontSize: "13px" }}>Đang tải cấu hình AMPC...</p>
+        <p className="text-slate-500" style={{ fontSize: "13px" }}>Đang tải cấu hình MPC...</p>
       </div>
     );
   }
@@ -126,7 +125,7 @@ export function AutoSettings() {
     return (
       <div className="elevated-card rounded-3xl p-5" data-testid="auto-settings-error">
         <p className="text-red-700" style={{ fontSize: "13px", fontWeight: 700 }}>
-          {error || "Không tải được cấu hình AMPC."}
+          {error || "Không tải được cấu hình MPC."}
         </p>
       </div>
     );
@@ -141,7 +140,6 @@ export function AutoSettings() {
       onSave={save}
       onNumberChange={updateNumber}
       onSoilTypeChange={updateSoilType}
-      onAdaptiveEnabledChange={(checked) => setProfile({ ...profile, adaptive_enabled: checked })}
       onActuatorEnabledChange={(checked) => setProfile({ ...profile, actuator_enabled: checked })}
     />
   );
@@ -155,7 +153,6 @@ export function AutoSettingsForm({
   onSave,
   onNumberChange,
   onSoilTypeChange,
-  onAdaptiveEnabledChange,
   onActuatorEnabledChange,
 }: AutoSettingsFormProps) {
   return (
@@ -163,7 +160,7 @@ export function AutoSettingsForm({
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
           <p className="text-slate-800" style={{ fontSize: "15px", fontWeight: 800 }}>
-            Cấu hình AMPC
+            Cấu hình MPC
           </p>
           <p className="text-slate-500" style={{ fontSize: "12px" }}>
             Lưu cấu hình FAO-56 cho mô hình Dr/RAW và giữ các ngưỡng sensor % để hiển thị legacy.
@@ -176,12 +173,16 @@ export function AutoSettingsForm({
       </div>
 
       <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-amber-800" style={{ fontSize: "12px" }}>
-        Sensor độ ẩm đất trả về phần trăm trên thang cảm biến 0-100. Các trường theta bên dưới là độ ẩm thể tích m3/m3 dùng cho FAO-56, không phải cùng một đơn vị.
+        Sensor độ ẩm đất trả về phần trăm trên thang cảm biến 0-100. Loại đất sẽ quyết định preset vật lý FAO-56.
       </div>
 
-      <div className="mt-5 grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)] gap-6 border-t border-slate-100 pt-4">
-        <div className="space-y-3">
+      <div className="mt-5 space-y-5 border-t border-slate-100 pt-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="space-y-1.5">
           <Label className="text-slate-600" style={{ fontSize: "12px" }}>Loại đất</Label>
+          <p className="text-slate-400 min-h-[30px]" style={{ fontSize: "11px" }}>
+            Chọn nhóm đất để hệ thống lấy thông số FAO tương ứng.
+          </p>
           <Select
             value={profile.soil_type}
             onValueChange={(value) => {
@@ -190,7 +191,7 @@ export function AutoSettingsForm({
               }
             }}
           >
-            <SelectTrigger className="mt-2 bg-white" data-testid="auto-settings-soil-type">
+            <SelectTrigger className="bg-white" data-testid="auto-settings-soil-type">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -201,14 +202,7 @@ export function AutoSettingsForm({
               ))}
             </SelectContent>
           </Select>
-          <div className="mt-3 grid grid-cols-3 gap-2 text-slate-600" style={{ fontSize: "11px" }}>
-            <span>FC {profile.theta_fc.toFixed(2)}</span>
-            <span>WP {profile.theta_wp.toFixed(2)}</span>
-            <span>SAT {profile.theta_sat.toFixed(2)}</span>
-          </div>
-          <p className="mt-3 text-slate-500" style={{ fontSize: "11px" }}>
-            Chọn preset sẽ điền theta_fc, theta_wp, theta_sat. Bạn vẫn có thể sửa các giá trị theta sau đó trước khi lưu.
-          </p>
+        </div>
         </div>
 
         <div className="space-y-5">
@@ -218,12 +212,17 @@ export function AutoSettingsForm({
                 <p className="text-slate-700" style={{ fontSize: "12px", fontWeight: 800 }}>{group.title}</p>
                 <p className="text-slate-500 mt-1" style={{ fontSize: "11px" }}>{group.description}</p>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {group.fields.map((field) => (
                   <div key={field.field} className="space-y-1.5">
                     <Label className="text-slate-600" style={{ fontSize: "12px" }} htmlFor={fieldTestId(field.field)}>
                       {field.label}
                     </Label>
+                    {field.helper && (
+                      <p className="text-slate-400 min-h-[30px]" style={{ fontSize: "11px" }}>
+                        {field.helper}
+                      </p>
+                    )}
                     <div className="flex items-center gap-2">
                       <Input
                         id={fieldTestId(field.field)}
@@ -247,14 +246,6 @@ export function AutoSettingsForm({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-5">
-        <label className="flex items-center gap-2 text-slate-700" style={{ fontSize: "13px", fontWeight: 700 }}>
-          <Switch
-            checked={profile.adaptive_enabled}
-            onCheckedChange={onAdaptiveEnabledChange}
-            data-testid="auto-settings-adaptive-enabled"
-          />
-          Bù sai số thích nghi
-        </label>
         <label className="flex items-center gap-2 text-slate-700" style={{ fontSize: "13px", fontWeight: 700 }}>
           <Switch
             checked={profile.actuator_enabled}

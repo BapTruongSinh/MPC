@@ -1,11 +1,10 @@
 """MPC solver implementations."""
 
-from .cost import TrajectoryCost, score_trajectory
-from .grid import GridShootingSolver, recommend
+from .cost import TrajectoryCost
+from .scipy_solver import ScipyMpcSolver, recommend
 
 __all__ = [
-    "GridShootingSolver",
+    "ScipyMpcSolver",
     "TrajectoryCost",
     "recommend",
-    "score_trajectory",
 ]

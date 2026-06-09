@@ -8,6 +8,12 @@ export interface LoginResponse {
 export const authLogin = (username: string, password: string) =>
   apiClient.post<LoginResponse>("/auth/login/", { username, password });
 
+export const authSetupStatus = () =>
+  apiClient.get<{ setup_required: boolean }>("/auth/setup-status/");
+
+export const authSetup = (username: string, password: string) =>
+  apiClient.post<{ detail: string }>("/auth/setup/", { username, password });
+
 // ─── Control ────────────────────────────────────────────────────────────────
 export interface ControlState {
   mode: "AUTO" | "MANUAL";
@@ -30,7 +36,6 @@ export interface ControlProfile {
   soil_type: FaoSoilType;
   theta_fc: number;
   theta_wp: number;
-  theta_sat: number;
   root_depth_m: number;
   depletion_fraction_p: number;
   pump_efficiency: number;
@@ -42,16 +47,12 @@ export interface ControlProfile {
   horizon_steps: number;
   pump_min_seconds: number;
   pump_max_seconds: number;
-  pump_grid_seconds: number;
   soft_daily_pump_cap_seconds: number;
   weight_band: number;
   weight_water: number;
   weight_switch: number;
   weight_daily: number;
   weight_terminal: number;
-  adaptive_enabled: boolean;
-  adaptive_bias_window: number;
-  adaptive_max_abs_bias: number;
   stale_after_seconds: number;
   actuator_enabled: boolean;
   updated_at: string;
@@ -98,7 +99,7 @@ export const getRuns = () => apiClient.get<RunItem[]>("/runs/");
 export const getRunSeries = (runId: number, limit = 500) =>
   apiClient.get<EstimationCycle[]>(`/runs/${runId}/series/?limit=${limit}`);
 
-export interface AMPCRecommendation {
+export interface MPCRecommendation {
   id: number;
   sensor_data: number | null;
   estimation: number | null;
@@ -111,27 +112,24 @@ export interface AMPCRecommendation {
   objective_cost: number;
   safety_status: string;
   reason: string;
-  bias_correction: number;
-  bias_window_count: number;
   used_today_pump_seconds: number;
   command_created: boolean;
   actuator_status: string;
   config_snapshot?: Record<string, unknown> | null;
-  state_snapshot?: AMPCStateSnapshot | null;
+  state_snapshot?: MPCStateSnapshot | null;
   created_at: string;
 }
 
 export interface Fao56Audit {
-  initial_theta?: number | null;
   initial_dr?: number | null;
   taw?: number | null;
   raw?: number | null;
   ks?: number | null;
   et0_step?: number | null;
   etc_adj?: number | null;
-  irrigation_depth_mm?: number | null;
   predicted_dr?: Array<number | null>;
   predicted_soil_moisture?: Array<number | null>;
+  sensor_calibration_mode?: string | null;
 }
 
 export interface ET0Audit {
@@ -145,7 +143,7 @@ export interface ET0Audit {
   fail_closed?: boolean;
 }
 
-export interface AMPCStateSnapshot {
+export interface MPCStateSnapshot {
   fao56?: Fao56Audit | null;
   et0?: ET0Audit | null;
   fail_closed?: boolean;
@@ -153,7 +151,7 @@ export interface AMPCStateSnapshot {
   [key: string]: unknown;
 }
 
-export interface AMPCSchedulerState {
+export interface MPCSchedulerState {
   greenhouse_id: number | null;
   is_enabled: boolean;
   interval_seconds: number;
@@ -170,20 +168,20 @@ export interface AMPCSchedulerState {
 export interface ForecastResponse {
   latest: SensorReading | null;
   estimation: EstimationCycle | null;
-  recommendation: AMPCRecommendation | null;
-  scheduler: AMPCSchedulerState;
+  recommendation: MPCRecommendation | null;
+  scheduler: MPCSchedulerState;
   history: SensorReading[];
 }
 
 export const getForecast = () => apiClient.get<ForecastResponse>("/forecast/");
 export const runAutoRecommendation = () =>
-  apiClient.post<AMPCRecommendation>("/control/auto-recommendation/");
-export const getAmpcScheduler = () =>
-  apiClient.get<AMPCSchedulerState>("/control/ampc-scheduler/");
-export const startAmpcScheduler = () =>
-  apiClient.post<AMPCSchedulerState>("/control/ampc-scheduler/start/");
-export const stopAmpcScheduler = () =>
-  apiClient.post<AMPCSchedulerState>("/control/ampc-scheduler/stop/");
+  apiClient.post<MPCRecommendation>("/control/auto-recommendation/");
+export const getMpcScheduler = () =>
+  apiClient.get<MPCSchedulerState>("/control/mpc-scheduler/");
+export const startMpcScheduler = () =>
+  apiClient.post<MPCSchedulerState>("/control/mpc-scheduler/start/");
+export const stopMpcScheduler = () =>
+  apiClient.post<MPCSchedulerState>("/control/mpc-scheduler/stop/");
 
 // ─── Dashboard ───────────────────────────────────────────────────────────────
 export interface DashboardOverview {
@@ -306,3 +304,14 @@ export const markAlertRead = (pk: number) =>
   apiClient.post<AlertItem>(`/alerts/${pk}/mark_read/`);
 export const markAllAlertsRead = () =>
   apiClient.post<{ updated: number }>("/alerts/mark_all_read/");
+
+// ─── Telegram Settings ───────────────────────────────────────────────────────
+export interface TelegramSettings {
+  token_configured: boolean;
+  chat_id_configured: boolean;
+  chat_id: string;
+}
+export const getTelegramSettings = () =>
+  apiClient.get<TelegramSettings>("/settings/telegram/");
+export const updateTelegramSettings = (payload: { telegram_bot_token?: string; telegram_chat_id?: string }) =>
+  apiClient.patch<{ detail: string; chat_id: string }>("/settings/telegram/", payload);

@@ -1,5 +1,5 @@
-# MPC Design System
+﻿# MPC Design System
 
-`MPC/` chưa có frontend/UI riêng trong v2. Dashboard/app integration hiện nằm ở `Green-House/frontend`.
+`MPC/` chÆ°a cÃ³ frontend/UI riÃªng trong v2. Dashboard/app integration hiá»‡n náº±m á»Ÿ `Green-House/frontend`.
 
-Nếu sau này thêm UI riêng cho recommendation hoặc actuator pilot, cần tạo design task trước khi implement frontend.
+Náº¿u sau nÃ y thÃªm UI riÃªng cho recommendation hoáº·c actuator pilot, cáº§n táº¡o design task trÆ°á»›c khi implement frontend.

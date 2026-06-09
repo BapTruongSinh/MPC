@@ -15,10 +15,10 @@ class TimeStampedModel(models.Model):
 
 
 FAO56_SOIL_PRESETS = {
-    'sand': {'theta_fc': 0.10, 'theta_wp': 0.04, 'theta_sat': 0.45},
-    'light_loam': {'theta_fc': 0.15, 'theta_wp': 0.06, 'theta_sat': 0.45},
-    'loam': {'theta_fc': 0.32, 'theta_wp': 0.15, 'theta_sat': 0.45},
-    'clay_loam': {'theta_fc': 0.35, 'theta_wp': 0.23, 'theta_sat': 0.45},
+    'sand': {'theta_fc': 0.10, 'theta_wp': 0.04},
+    'light_loam': {'theta_fc': 0.15, 'theta_wp': 0.06},
+    'loam': {'theta_fc': 0.32, 'theta_wp': 0.15},
+    'clay_loam': {'theta_fc': 0.35, 'theta_wp': 0.23},
 }
 
 FAO56_SOIL_TYPE_CHOICES = [
@@ -33,20 +33,23 @@ class Greenhouse(TimeStampedModel):
         on_delete=models.PROTECT,
         related_name='greenhouses',
     )
-    name = models.CharField(max_length=120)
-    location = models.CharField(max_length=255, blank=True, null=True)
+    name = models.CharField(max_length=120, default='Main greenhouse')
+    location = models.CharField(max_length=255, blank=True)
     is_active = models.BooleanField(default=True)
-    notes = models.TextField(blank=True, null=True)
+    notes = models.TextField(blank=True)
 
     class Meta:
         db_table = 'greenhouses'
         ordering = ['id']
         constraints = [
-            models.UniqueConstraint(fields=['owner', 'name'], name='uq_greenhouse_owner_name'),
+            models.UniqueConstraint(
+                fields=['owner', 'name'],
+                name='uq_greenhouse_owner_name',
+            ),
         ]
 
     def __str__(self):
-        return f'{self.name} ({self.owner_id})'
+        return f'{self.name}<{self.owner_id}>'
 
 
 class ExperimentRun(TimeStampedModel):
@@ -63,16 +66,17 @@ class ExperimentRun(TimeStampedModel):
     run_type = models.CharField(max_length=20, choices=RunType.choices, default=RunType.LIVE)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.RUNNING)
     dataset_source = models.CharField(max_length=255, blank=True)
-    started_at = models.DateTimeField(default=timezone.now)
-    completed_at = models.DateTimeField(null=True, blank=True)
-    notes = models.TextField(blank=True)
     greenhouse = models.ForeignKey(
         Greenhouse,
         null=True,
         blank=True,
         on_delete=models.PROTECT,
         related_name='runs',
+        db_constraint=False,
     )
+    started_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True)
 
     class Meta:
         db_table = 'experiment_runs'
@@ -90,7 +94,7 @@ class ExperimentConfig(TimeStampedModel):
     R0 = models.FloatField(default=1.0)
     R_min = models.FloatField(default=0.01)
     R_max = models.FloatField(default=25.0)
-    alpha = models.FloatField(default=0.05)
+    forgetting_factor_b = models.FloatField(default=0.95)
     raw_config_json = models.JSONField(default=dict, blank=True)
 
     class Meta:
@@ -139,58 +143,10 @@ class EvaluationSummary(TimeStampedModel):
         return f'Evaluation<{self.run_id}>'
 
 
-class Device(TimeStampedModel):
-    class DeviceType(models.TextChoices):
-        CONTROLLER = 'controller', 'Controller'
-        FAN = 'fan', 'Fan'
-        PUMP = 'pump', 'Pump'
-        LIGHT = 'light', 'Light'
-        MIST = 'mist', 'Mist'
-
-    class DeviceStatus(models.TextChoices):
-        ONLINE = 'online', 'Online'
-        OFFLINE = 'offline', 'Offline'
-        ERROR = 'error', 'Error'
-
-    name = models.CharField(max_length=100)
-    code = models.CharField(max_length=50)
-    greenhouse = models.ForeignKey(
-        Greenhouse,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name='devices',
-        db_constraint=False,
-    )
-    device_type = models.CharField(max_length=20, choices=DeviceType.choices)
-    status = models.CharField(
-        max_length=20,
-        choices=DeviceStatus.choices,
-        default=DeviceStatus.OFFLINE,
-    )
-    is_enabled = models.BooleanField(default=True)
-    firmware_version = models.CharField(max_length=50, blank=True)
-    api_token = models.CharField(max_length=64, unique=True, blank=True)
-    last_seen_at = models.DateTimeField(null=True, blank=True)
-    metadata = models.JSONField(default=dict, blank=True)
-
-    class Meta:
-        ordering = ['id']
-        constraints = [
-            models.UniqueConstraint(fields=['greenhouse', 'code'], name='uq_device_greenhouse_code'),
-        ]
-
-    def save(self, *args, **kwargs):
-        if not self.api_token:
-            self.api_token = secrets.token_hex(24)
-        super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f'{self.name} ({self.code})'
-
-
+# ── DeviceState: trạng thái realtime của từng thiết bị (không cần bảng Device) ──
 class DeviceState(TimeStampedModel):
-    device = models.OneToOneField(Device, on_delete=models.CASCADE, related_name='state')
+    # device_code: ví dụ 'pump', 'fan', 'mist', 'light', 'esp32-main'
+    device_code = models.CharField(max_length=50, unique=True)
     is_on = models.BooleanField(default=False)
     desired_on = models.BooleanField(default=False)
     last_command = models.CharField(max_length=50, blank=True)
@@ -198,7 +154,7 @@ class DeviceState(TimeStampedModel):
     extra = models.JSONField(default=dict, blank=True)
 
     def __str__(self):
-        return f'{self.device.code} state'
+        return f'{self.device_code} state'
 
 
 class SensorData(TimeStampedModel):
@@ -308,7 +264,6 @@ class EstimationCycle(TimeStampedModel):
             models.Index(fields=['sample_ts', 'id'], name='est_sample_id_idx'),
             models.Index(fields=['cycle_status', 'sample_ts'], name='est_status_ts_idx'),
             models.Index(fields=['run', 'sample_ts'], name='est_run_ts_idx'),
-            models.Index(fields=['greenhouse', 'sample_ts'], name='est_greenhouse_ts_idx'),
         ]
         constraints = [
             models.UniqueConstraint(
@@ -331,14 +286,6 @@ class ControlState(TimeStampedModel):
         MANUAL = 'MANUAL', 'MANUAL'
 
     singleton_key = models.CharField(max_length=20, unique=True, default='main')
-    greenhouse = models.OneToOneField(
-        Greenhouse,
-        null=True,
-        blank=True,
-        on_delete=models.CASCADE,
-        related_name='control_state',
-        db_constraint=False,
-    )
     mode = models.CharField(max_length=10, choices=Mode.choices, default=Mode.MANUAL)
     manual_reason = models.CharField(max_length=255, blank=True)
     manual_changed_at = models.DateTimeField(null=True, blank=True)
@@ -347,28 +294,12 @@ class ControlState(TimeStampedModel):
         verbose_name = 'Control state'
         verbose_name_plural = 'Control state'
 
-    @classmethod
-    def singleton_key_for_greenhouse(cls, greenhouse_id: int) -> str:
-        max_length = cls._meta.get_field('singleton_key').max_length
-        legacy_key = f'greenhouse:{greenhouse_id}'
-        if len(legacy_key) <= max_length:
-            return legacy_key
-        return f'gh:{int(greenhouse_id):x}'
-
     def __str__(self):
         return f'Control<{self.mode}>'
 
 
 class AMPCSchedulerState(TimeStampedModel):
     singleton_key = models.CharField(max_length=20, unique=True, default='main')
-    greenhouse = models.ForeignKey(
-        Greenhouse,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name='ampc_scheduler_states',
-        db_constraint=False,
-    )
     is_enabled = models.BooleanField(default=False)
     interval_seconds = models.PositiveIntegerField(default=300)
     is_executing = models.BooleanField(default=False)
@@ -400,7 +331,6 @@ class ControlProfile(TimeStampedModel):
 
     pump_min_seconds = models.FloatField(default=0.0)
     pump_max_seconds = models.FloatField(default=300.0)
-    pump_grid_seconds = models.FloatField(default=30.0)
     soft_daily_pump_cap_seconds = models.FloatField(default=1800.0)
 
     weight_band = models.FloatField(default=10.0)
@@ -409,9 +339,6 @@ class ControlProfile(TimeStampedModel):
     weight_daily = models.FloatField(default=2.0)
     weight_terminal = models.FloatField(default=20.0)
 
-    adaptive_enabled = models.BooleanField(default=True)
-    adaptive_bias_window = models.PositiveIntegerField(default=12)
-    adaptive_max_abs_bias = models.FloatField(default=5.0)
     stale_after_seconds = models.PositiveIntegerField(default=600)
 
     actuator_enabled = models.BooleanField(default=False)
@@ -425,8 +352,11 @@ class ControlProfile(TimeStampedModel):
 
 
 class GreenhouseControlProfile(TimeStampedModel):
+    singleton_key = models.CharField(max_length=20, unique=True, default='main')
     greenhouse = models.OneToOneField(
         Greenhouse,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name='control_profile',
         db_constraint=False,
@@ -438,11 +368,10 @@ class GreenhouseControlProfile(TimeStampedModel):
     soil_type = models.CharField(max_length=32, choices=FAO56_SOIL_TYPE_CHOICES, default='loam')
     theta_fc = models.FloatField(default=0.32)
     theta_wp = models.FloatField(default=0.15)
-    theta_sat = models.FloatField(default=0.45)
     root_depth_m = models.FloatField(default=0.30)
     depletion_fraction_p = models.FloatField(default=0.5)
     pump_efficiency = models.FloatField(default=0.8)
-    pump_flow_lps = models.FloatField(default=0.02)
+    pump_flow_lps = models.FloatField(default=0.001)
     irrigation_area_m2 = models.FloatField(default=0.25)
 
     target_low = models.FloatField(default=55.0)
@@ -452,7 +381,6 @@ class GreenhouseControlProfile(TimeStampedModel):
 
     pump_min_seconds = models.FloatField(default=0.0)
     pump_max_seconds = models.FloatField(default=300.0)
-    pump_grid_seconds = models.FloatField(default=30.0)
     soft_daily_pump_cap_seconds = models.FloatField(default=1800.0)
 
     cost_band_violation = models.FloatField(default=10.0)
@@ -461,9 +389,6 @@ class GreenhouseControlProfile(TimeStampedModel):
     cost_daily_cap_excess = models.FloatField(default=2.0)
     cost_terminal_band_violation = models.FloatField(default=20.0)
 
-    adaptive_enabled = models.BooleanField(default=True)
-    adaptive_bias_window = models.PositiveIntegerField(default=12)
-    adaptive_max_abs_bias = models.FloatField(default=5.0)
     safety_stale_after_seconds = models.PositiveIntegerField(default=600)
 
     actuator_enabled = models.BooleanField(default=False)
@@ -473,14 +398,13 @@ class GreenhouseControlProfile(TimeStampedModel):
 
     class Meta:
         db_table = 'greenhouse_control_profiles'
-        ordering = ['greenhouse_id']
 
     @property
     def actuator_configured(self) -> bool:
         return bool(self.actuator_enabled and self.actuator_url)
 
     def __str__(self):
-        return f'GreenhouseControlProfile<{self.greenhouse_id}:{self.crop_name}>'
+        return f'GreenhouseControlProfile<{self.greenhouse_id or self.singleton_key}>'
 
 
 class Alert(TimeStampedModel):
@@ -502,13 +426,8 @@ class Alert(TimeStampedModel):
         on_delete=models.SET_NULL,
         related_name='alerts',
     )
-    device = models.ForeignKey(
-        Device,
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name='alerts',
-    )
+    # device_code thay cho FK device: 'pump', 'fan', 'esp32-main', v.v.
+    device_code = models.CharField(max_length=50, blank=True, default='')
 
     class Meta:
         ordering = ['-happened_at', '-id']
@@ -517,13 +436,15 @@ class Alert(TimeStampedModel):
         return f'[{self.level}] {self.title}'
 
 
+# ── DeviceCommand: lịch sử lệnh điều khiển thiết bị ──
 class DeviceCommand(TimeStampedModel):
     class CommandStatus(models.TextChoices):
         PENDING = 'pending', 'Pending'
         ACK = 'ack', 'Acknowledged'
         FAILED = 'failed', 'Failed'
 
-    device = models.ForeignKey(Device, on_delete=models.CASCADE, related_name='commands')
+    # device_code: 'pump', 'fan', 'mist', 'light', v.v.
+    device_code = models.CharField(max_length=50, db_index=True)
     command = models.CharField(max_length=50)
     value = models.CharField(max_length=50, blank=True)
     payload = models.JSONField(default=dict, blank=True)
@@ -541,7 +462,7 @@ class DeviceCommand(TimeStampedModel):
         ]
 
     def __str__(self):
-        return f'{self.device.code}:{self.command}:{self.status}'
+        return f'{self.device_code}:{self.command}:{self.status}'
 
 
 class AMPCRecommendation(TimeStampedModel):
@@ -598,8 +519,6 @@ class AMPCRecommendation(TimeStampedModel):
     objective_cost = models.FloatField(default=0.0)
     safety_status = models.CharField(max_length=40, default='pump_off_failsafe')
     reason = models.CharField(max_length=255, blank=True)
-    bias_correction = models.FloatField(default=0.0)
-    bias_window_count = models.PositiveIntegerField(default=0)
     used_today_pump_seconds = models.FloatField(default=0.0)
     command_created = models.BooleanField(default=False)
     actuator_status = models.CharField(
