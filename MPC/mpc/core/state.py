@@ -9,6 +9,14 @@ from typing import Any, Mapping
 
 
 MAX_TRUSTED_KALMAN_R = 15.0
+OPTIONAL_STATE_FIELDS = (
+    "kf_x_posterior",
+    "kf_R",
+    "raw_soil_moisture",
+    "temperature",
+    "humidity",
+    "light",
+)
 
 
 def _finite_or_none(value: float | int | None, field_name: str) -> float | None:
@@ -43,12 +51,8 @@ class ControllerState:
     def __post_init__(self) -> None:
         if not isinstance(self.timestamp, datetime):
             raise TypeError("timestamp must be a datetime")
-        _finite_or_none(self.kf_x_posterior, "kf_x_posterior")
-        _finite_or_none(self.kf_R, "kf_R")
-        _finite_or_none(self.raw_soil_moisture, "raw_soil_moisture")
-        _finite_or_none(self.temperature, "temperature")
-        _finite_or_none(self.humidity, "humidity")
-        _finite_or_none(self.light, "light")
+        for field_name in OPTIONAL_STATE_FIELDS:
+            _finite_or_none(getattr(self, field_name), field_name)
         _required_finite(self.last_pump_seconds, "last_pump_seconds")
 
     @property
@@ -69,31 +73,23 @@ class ControllerState:
 
     @classmethod
     def from_mapping(cls, payload: Mapping[str, Any]) -> "ControllerState":
-        raw_ts = payload.get("timestamp")
-        if isinstance(raw_ts, datetime):
-            timestamp = raw_ts
-        elif isinstance(raw_ts, str):
-            timestamp = datetime.fromisoformat(raw_ts.replace("Z", "+00:00"))
-        else:
-            raise ValueError("timestamp must be an ISO string or datetime")
-
         return cls(
-            timestamp=timestamp,
-            kf_x_posterior=_finite_or_none(
-                payload.get("kf_x_posterior"),
-                "kf_x_posterior",
-            ),
-            kf_R=_finite_or_none(payload.get("kf_R"), "kf_R"),
-            raw_soil_moisture=_finite_or_none(
-                payload.get("raw_soil_moisture"),
-                "raw_soil_moisture",
-            ),
-            temperature=_finite_or_none(payload.get("temperature"), "temperature"),
-            humidity=_finite_or_none(payload.get("humidity"), "humidity"),
-            light=_finite_or_none(payload.get("light"), "light"),
+            timestamp=_parse_timestamp(payload.get("timestamp")),
+            **{
+                field_name: _finite_or_none(payload.get(field_name), field_name)
+                for field_name in OPTIONAL_STATE_FIELDS
+            },
             last_pump_seconds=_required_finite(
                 payload.get("last_pump_seconds", 0.0),
                 "last_pump_seconds",
             ),
         )
+
+
+def _parse_timestamp(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    raise ValueError("timestamp must be an ISO string or datetime")
 

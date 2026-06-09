@@ -7,13 +7,10 @@ from math import isfinite
 from typing import Sequence
 
 from mpc.control.fao56 import (
-    adjusted_crop_et_mm,
+    advance_depletion_mm,
     calibrated_sensor_percent_from_depletion_mm,
     et0_step_mm,
-    irrigation_depth_mm,
-    sensor_calibration_from_target_band,
     state_from_calibrated_sensor_percent,
-    water_stress_coefficient,
 )
 from mpc.core.config import ControllerConfig
 
@@ -84,11 +81,6 @@ def score_fao56_trajectory(
     if max_pump_seconds <= 0.0:
         raise ValueError("pump.max_seconds must be > 0")
 
-    sensor_calibration_from_target_band(
-        target_low=config.target_band.low,
-        target_high=config.target_band.high,
-        config=config.fao56,
-    )
     fao_state = state_from_calibrated_sensor_percent(
         initial_sensor_percent,
         config.fao56,
@@ -117,29 +109,29 @@ def score_fao56_trajectory(
             raise ValueError("pump_seconds must be finite")
         if pump < 0.0:
             raise ValueError("pump_seconds must be >= 0")
-        if current_dr < 0.0 or current_dr > taw:
-            raise ValueError("Dr must satisfy 0 <= Dr <= TAW")
 
-        ks = water_stress_coefficient(current_dr, config.fao56, taw, raw)
-        etc_adjusted = adjusted_crop_et_mm(ks, step_et0, config.fao56)
-        irrigation = irrigation_depth_mm(pump, config.fao56)
-        depletion_raw_next = current_dr + etc_adjusted - irrigation
-        depletion_next = min(max(depletion_raw_next, 0.0), taw)
+        step = advance_depletion_mm(
+            depletion_mm=current_dr,
+            et0_hour_mm=config.fao56.et0_hour_mm,
+            pump_seconds=pump,
+            step_seconds=config.step_seconds,
+            config=config.fao56,
+        )
         forecast_sensor = calibrated_sensor_percent_from_depletion_mm(
-            depletion_next,
+            step.depletion_next_mm,
             config.fao56,
             target_low=config.target_band.low,
             target_high=config.target_band.high,
         )
         if not (
-            isfinite(depletion_raw_next)
-            and isfinite(depletion_next)
+            isfinite(step.depletion_raw_next_mm)
+            and isfinite(step.depletion_next_mm)
             and isfinite(forecast_sensor)
         ):
             raise ValueError("FAO prediction must be finite")
 
-        stress_error = max(0.0, depletion_next - raw)
-        overwater_error = max(0.0, -depletion_raw_next)
+        stress_error = max(0.0, step.depletion_next_mm - raw)
+        overwater_error = max(0.0, -step.depletion_raw_next_mm)
         pump_ratio = pump / max_pump_seconds
         switch_ratio = abs(pump - previous_pump) / max_pump_seconds
 
@@ -149,13 +141,13 @@ def score_fao56_trajectory(
         switching_total += config.cost.switching * switch_ratio * switch_ratio
 
         previous_pump = pump
-        current_dr = depletion_next
+        current_dr = step.depletion_next_mm
         predicted_soil.append(forecast_sensor)
-        predicted_dr.append(depletion_next)
-        ks_values.append(ks)
-        etc_values.append(etc_adjusted)
-        irrigation_values.append(irrigation)
-        raw_next_values.append(depletion_raw_next)
+        predicted_dr.append(step.depletion_next_mm)
+        ks_values.append(step.water_stress_ks)
+        etc_values.append(step.etc_adjusted_mm)
+        irrigation_values.append(step.irrigation_depth_mm)
+        raw_next_values.append(step.depletion_raw_next_mm)
 
     terminal_error = max(0.0, predicted_dr[-1] - raw)
     terminal_total = (

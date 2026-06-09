@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from math import isfinite
 
 import numpy as np
 from scipy.optimize import minimize
@@ -23,10 +22,7 @@ class ScipyMpcSolver:
 
     _MAX_FUTURE_SKEW_SECONDS = 30.0
 
-    def __init__(
-        self,
-        config: ControllerConfig | None = None,
-    ) -> None:
+    def __init__(self, config: ControllerConfig | None = None) -> None:
         self.config = config or ControllerConfig()
 
     def recommend(
@@ -53,54 +49,26 @@ class ScipyMpcSolver:
             pump_seconds=self.config.pump.clamp(best.pump_seconds[0]),
             step_seconds=self.config.step_seconds,
             predicted_soil_moisture=best.predicted_soil_moisture,
-            target_band={
-                "low": self.config.target_band.low,
-                "high": self.config.target_band.high,
-            },
+            target_band=self._target_band_payload(),
             cost=best.cost.total,
             safety_status="safe",
             reason=best.reason(),
             fao56=best.audit(),
         )
 
-    def _solve(
-        self,
-        *,
-        state: ControllerState,
-    ) -> Fao56Trajectory:
+    def _solve(self, *, state: ControllerState) -> Fao56Trajectory:
         horizon = self.config.horizon_steps
-        bounds = [
-            (self.config.pump.min_seconds, self.config.pump.max_seconds)
-            for _ in range(horizon)
-        ]
-        initial = _initial_pump_guess(self.config, state)
-
         result = minimize(
-            lambda values: self._objective(
-                values,
-                state=state,
-            ),
-            x0=np.asarray(initial, dtype=float),
-            bounds=bounds,
+            lambda values: self._objective(values, state=state),
+            x0=np.asarray(_initial_pump_guess(self.config, state), dtype=float),
+            bounds=[_pump_bounds(self.config) for _ in range(horizon)],
             method="Powell",
-            options={
-                "maxiter": max(100, horizon * 40),
-                "xtol": 1e-4,
-                "ftol": 1e-6,
-                "disp": False,
-            },
+            options=_optimizer_options(horizon),
         )
         if not result.success or result.x is None:
             raise RuntimeError(f"scipy_optimizer_failed:{result.message}")
 
-        sequence = tuple(
-            _snap_pump_seconds(self.config.pump.clamp(float(value)), self.config)
-            for value in result.x
-        )
-        return self._score_sequence(
-            state=state,
-            sequence=sequence,
-        )
+        return self._score_sequence(state=state, sequence=_snapped_sequence(result.x, self.config))
 
     def _objective(
         self,
@@ -109,14 +77,8 @@ class ScipyMpcSolver:
         state: ControllerState,
     ) -> float:
         try:
-            sequence = tuple(
-                self.config.pump.clamp(float(value))
-                for value in values.tolist()
-            )
-            return self._score_sequence(
-                state=state,
-                sequence=sequence,
-            ).cost.total
+            sequence = tuple(self.config.pump.clamp(float(value)) for value in values)
+            return self._score_sequence(state=state, sequence=sequence).cost.total
         except Exception:  # noqa: BLE001
             return float("inf")
 
@@ -147,12 +109,8 @@ class ScipyMpcSolver:
         ):
             raise ValueError("state_out_of_bounds")
 
-        current_time = now or datetime.now(timezone.utc)
-        sample_time = state.timestamp
-        if sample_time.tzinfo is None:
-            sample_time = sample_time.replace(tzinfo=timezone.utc)
-        if current_time.tzinfo is None:
-            current_time = current_time.replace(tzinfo=timezone.utc)
+        current_time = _as_aware_utc(now or datetime.now(timezone.utc))
+        sample_time = _as_aware_utc(state.timestamp)
         age_seconds = (current_time - sample_time).total_seconds()
         if age_seconds < -self._MAX_FUTURE_SKEW_SECONDS:
             raise ValueError("future_sample")
@@ -168,14 +126,17 @@ class ScipyMpcSolver:
             pump_seconds=self.config.safety.fail_closed_pump_seconds,
             step_seconds=self.config.step_seconds,
             predicted_soil_moisture=(),
-            target_band={
-                "low": self.config.target_band.low,
-                "high": self.config.target_band.high,
-            },
+            target_band=self._target_band_payload(),
             cost=0.0,
             safety_status=safety_status,
             reason=reason,
         )
+
+    def _target_band_payload(self) -> dict[str, float]:
+        return {
+            "low": self.config.target_band.low,
+            "high": self.config.target_band.high,
+        }
 
 
 def recommend(
@@ -201,6 +162,26 @@ def _initial_pump_guess(
     return tuple(guess)
 
 
+def _pump_bounds(config: ControllerConfig) -> tuple[float, float]:
+    return (config.pump.min_seconds, config.pump.max_seconds)
+
+
+def _optimizer_options(horizon_steps: int) -> dict[str, float | bool]:
+    return {
+        "maxiter": max(100, horizon_steps * 40),
+        "xtol": 1e-4,
+        "ftol": 1e-6,
+        "disp": False,
+    }
+
+
+def _snapped_sequence(values: np.ndarray, config: ControllerConfig) -> tuple[float, ...]:
+    return tuple(
+        _snap_pump_seconds(config.pump.clamp(float(value)), config)
+        for value in values
+    )
+
+
 def _snap_pump_seconds(value: float, config: ControllerConfig) -> float:
     tolerance = 1e-2
     if abs(value - config.pump.min_seconds) <= tolerance:
@@ -208,3 +189,7 @@ def _snap_pump_seconds(value: float, config: ControllerConfig) -> float:
     if abs(value - config.pump.max_seconds) <= tolerance:
         return config.pump.max_seconds
     return value
+
+
+def _as_aware_utc(value: datetime) -> datetime:
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
