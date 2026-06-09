@@ -399,6 +399,20 @@ def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
         MANUAL_REASON_MAX_LENGTH,
     )
     payload = {**payload}
+    
+    if payload.get('light') is None:
+        sun_tracker = payload.get('sun_tracker')
+        if isinstance(sun_tracker, dict):
+            ldrs = [
+                sun_tracker.get('ldr_lt'),
+                sun_tracker.get('ldr_rt'),
+                sun_tracker.get('ldr_ld'),
+                sun_tracker.get('ldr_rd')
+            ]
+            valid_ldrs = [v for v in ldrs if isinstance(v, (int, float))]
+            if valid_ldrs:
+                payload['light'] = max(valid_ldrs)
+
     payload['payload'] = sensor_payload
     payload['metadata'] = metadata
     payload['sensor_errors'] = sensor_errors

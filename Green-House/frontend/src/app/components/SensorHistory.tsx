@@ -264,7 +264,7 @@ export function SensorHistory() {
                       ? "bg-blue-600 text-white shadow-sm"
                       : "bg-slate-100 text-slate-600 hover:bg-slate-200"
                     }`}
-                  style={{ fontSize: "13px", fontWeight: 700 }}
+                  style={{ fontSize: "14px", fontWeight: 700 }}
                 >
                   <Calendar className="w-4 h-4" />
                   {item.label}
@@ -277,7 +277,7 @@ export function SensorHistory() {
             onClick={handleExportCsv}
             disabled={!rows.length}
             className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-white shadow-sm transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-            style={{ fontSize: "13px", fontWeight: 700 }}
+            style={{ fontSize: "14px", fontWeight: 700 }}
           >
             <Download className="w-4 h-4" />
             Xuất CSV
@@ -288,7 +288,7 @@ export function SensorHistory() {
           <div>
             <label
               className="block text-slate-500 mb-2"
-              style={{ fontSize: "11px", fontWeight: 700 }}
+              style={{ fontSize: "13px", fontWeight: 700 }}
             >
               Từ ngày giờ
             </label>
@@ -301,14 +301,14 @@ export function SensorHistory() {
                 setDateFrom(e.target.value);
               }}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none"
-              style={{ fontSize: "13px", fontWeight: 600 }}
+              style={{ fontSize: "14px", fontWeight: 600 }}
             />
           </div>
 
           <div>
             <label
               className="block text-slate-500 mb-2"
-              style={{ fontSize: "11px", fontWeight: 700 }}
+              style={{ fontSize: "13px", fontWeight: 700 }}
             >
               Đến ngày giờ
             </label>
@@ -321,7 +321,7 @@ export function SensorHistory() {
                 setDateTo(e.target.value);
               }}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 outline-none"
-              style={{ fontSize: "13px", fontWeight: 600 }}
+              style={{ fontSize: "14px", fontWeight: 600 }}
             />
           </div>
         </div>
@@ -329,7 +329,7 @@ export function SensorHistory() {
         {invalidRange && (
           <div
             className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-red-600"
-            style={{ fontSize: "12px", fontWeight: 600 }}
+            style={{ fontSize: "14px", fontWeight: 600 }}
           >
             Thời gian bắt đầu không được lớn hơn thời gian kết thúc.
           </div>
@@ -338,19 +338,19 @@ export function SensorHistory() {
 
       <div className="elevated-card rounded-3xl overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200">
-          <h4 className="text-slate-900" style={{ fontSize: "15px", fontWeight: 700 }}>
+          <h4 className="text-slate-900" style={{ fontSize: "16px", fontWeight: 700 }}>
             Bảng dữ liệu đo
           </h4>
         </div>
 
         {loading ? (
-          <div className="p-10 text-center text-slate-400" style={{ fontSize: "13px" }}>
+          <div className="p-10 text-center text-slate-400" style={{ fontSize: "14px" }}>
             Đang tải lịch sử cảm biến...
           </div>
         ) : error ? (
           <div
             className="p-10 text-center text-red-500"
-            style={{ fontSize: "13px", fontWeight: 600 }}
+            style={{ fontSize: "14px", fontWeight: 600 }}
           >
             {error}
           </div>
@@ -359,10 +359,10 @@ export function SensorHistory() {
             <div className="w-16 h-16 bg-slate-50 rounded-2xl flex items-center justify-center mx-auto mb-3 border border-slate-200">
               <Database className="w-7 h-7 text-slate-400" />
             </div>
-            <p className="text-slate-700" style={{ fontSize: "15px", fontWeight: 700 }}>
+            <p className="text-slate-700" style={{ fontSize: "16px", fontWeight: 700 }}>
               Chưa có lịch sử đo
             </p>
-            <p className="text-slate-500 mt-1" style={{ fontSize: "13px" }}>
+            <p className="text-slate-500 mt-1" style={{ fontSize: "14px" }}>
               Khi ESP gửi dữ liệu cảm biến, bản ghi sẽ xuất hiện ở đây
             </p>
           </div>
@@ -376,7 +376,7 @@ export function SensorHistory() {
                 <tr className="bg-gradient-to-r from-blue-50 to-blue-100 border-b border-slate-200">
                   <th
                     className="text-left px-5 py-4 text-slate-700"
-                    style={{ fontSize: "12px", fontWeight: 700 }}
+                    style={{ fontSize: "14px", fontWeight: 700 }}
                   >
                     <div className="flex items-center gap-2">
                       <Clock3 className="w-4 h-4 text-blue-600" />
@@ -385,7 +385,7 @@ export function SensorHistory() {
                   </th>
                   <th
                     className="text-center px-5 py-4 text-slate-700"
-                    style={{ fontSize: "12px", fontWeight: 700 }}
+                    style={{ fontSize: "14px", fontWeight: 700 }}
                   >
                     <div className="flex items-center justify-center gap-2">
                       <Thermometer className="w-4 h-4 text-orange-600" />
@@ -394,7 +394,7 @@ export function SensorHistory() {
                   </th>
                   <th
                     className="text-center px-5 py-4 text-slate-700"
-                    style={{ fontSize: "12px", fontWeight: 700 }}
+                    style={{ fontSize: "14px", fontWeight: 700 }}
                   >
                     <div className="flex items-center justify-center gap-2">
                       <Droplets className="w-4 h-4 text-cyan-600" />
@@ -404,7 +404,7 @@ export function SensorHistory() {
 
                   <th
                     className="text-center px-5 py-4 text-slate-700"
-                    style={{ fontSize: "12px", fontWeight: 700 }}
+                    style={{ fontSize: "14px", fontWeight: 700 }}
                   >
                     <div className="flex items-center justify-center gap-2">
                       <Sprout className="w-4 h-4 text-green-600" />
@@ -428,13 +428,13 @@ export function SensorHistory() {
                         <div>
                           <p
                             className="text-slate-800"
-                            style={{ fontSize: "13px", fontWeight: 600 }}
+                            style={{ fontSize: "14px", fontWeight: 600 }}
                           >
                             {Number.isNaN(recordedAt.getTime())
                               ? "--"
                               : recordedAt.toLocaleDateString("vi-VN")}
                           </p>
-                          <p className="text-slate-400" style={{ fontSize: "11px" }}>
+                          <p className="text-slate-400" style={{ fontSize: "13px" }}>
                             {Number.isNaN(recordedAt.getTime())
                               ? "--"
                               : recordedAt.toLocaleTimeString("vi-VN", {
@@ -452,7 +452,7 @@ export function SensorHistory() {
                             row.temperature,
                             "temperature"
                           )}`}
-                          style={{ fontSize: "14px" }}
+                          style={{ fontSize: "15px" }}
                         >
                           {formatMetric(row.temperature, "°C")}
                         </span>
@@ -464,7 +464,7 @@ export function SensorHistory() {
                             row.humidity,
                             "humidity"
                           )}`}
-                          style={{ fontSize: "14px" }}
+                          style={{ fontSize: "15px" }}
                         >
                           {formatMetric(row.humidity, "%")}
                         </span>
@@ -478,7 +478,7 @@ export function SensorHistory() {
                             row.soil_moisture,
                             "soilMoisture"
                           )}`}
-                          style={{ fontSize: "14px" }}
+                          style={{ fontSize: "15px" }}
                         >
                           {formatMetric(row.soil_moisture, "%")}
                         </span>
@@ -496,13 +496,13 @@ export function SensorHistory() {
             onClick={handlePrev}
             disabled={page <= 1 || invalidRange || pageLoading}
             className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 flex items-center gap-2"
-            style={{ fontSize: "13px", fontWeight: 600 }}
+            style={{ fontSize: "14px", fontWeight: 600 }}
           >
             <ChevronLeft className="w-4 h-4" />
             Trước
           </button>
 
-          <div className="text-slate-600" style={{ fontSize: "13px", fontWeight: 600 }}>
+          <div className="text-slate-600" style={{ fontSize: "14px", fontWeight: 600 }}>
             Trang {page} / {totalPages}
           </div>
 
@@ -510,7 +510,7 @@ export function SensorHistory() {
             onClick={handleNext}
             disabled={page >= totalPages || invalidRange || pageLoading}
             className="px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-700 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-50 flex items-center gap-2"
-            style={{ fontSize: "13px", fontWeight: 600 }}
+            style={{ fontSize: "14px", fontWeight: 600 }}
           >
             Sau
             <ChevronRight className="w-4 h-4" />
