@@ -50,11 +50,9 @@ const sampleProfile = {
   horizon_steps: 12,
   pump_min_seconds: 0,
   pump_max_seconds: 300,
-  soft_daily_pump_cap_seconds: 1800,
   weight_band: 10,
   weight_water: 0.2,
   weight_switch: 0.5,
-  weight_daily: 2,
   weight_terminal: 20,
   stale_after_seconds: 600,
   actuator_enabled: false,
@@ -114,9 +112,7 @@ try {
     weight_band: -1,
     weight_water: -1,
     weight_switch: -1,
-    weight_daily: -1,
     weight_terminal: -1,
-    soft_daily_pump_cap_seconds: 0,
   })) {
     const invalidProfile = { ...sampleProfile, [field]: value };
     assert.notEqual(
@@ -162,7 +158,6 @@ try {
     objective_cost: 1.25,
     safety_status: "safe",
     reason: "ok",
-    used_today_pump_seconds: 45,
     command_created: false,
     actuator_status: "disabled",
     created_at: "2026-05-12T00:00:00Z",

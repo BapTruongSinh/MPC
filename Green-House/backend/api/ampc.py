@@ -1,216 +1,140 @@
 from __future__ import annotations
 
-from datetime import datetime, time, timedelta
+from datetime import datetime
 
 from django.conf import settings
-from django.db.models import Sum
 from django.utils import timezone
 
 from mpc.control.fao56 import Fao56Config
-from mpc.core.config import (
-    ControllerConfig,
-    CostWeights,
-    PumpLimits,
-    SafetyConfig,
-    TargetBand,
-)
+from mpc.core.config import ControllerConfig, CostWeights, PumpLimits, SafetyConfig, TargetBand
 from mpc.core.state import MAX_TRUSTED_KALMAN_R, ControllerState
 from mpc.core.types import Recommendation
 from mpc.solver import ScipyMpcSolver
 
-from .et0 import ET0Failure, ET0Reading, get_hourly_et0
-from .estimation import (
-    ensure_estimation_for_reading,
-    ensure_recent_window_estimations,
-    latest_estimation,
-)
-from .models import (
-    AMPCRecommendation,
-    ControlState,
-    EstimationCycle,
-    ExperimentRun,
-    Greenhouse,
-    GreenhouseControlProfile,
-    SensorData,
-)
+from .estimation import ensure_estimation_for_reading, ensure_recent_window_estimations, latest_estimation
+from .et0 import ET0Reading, OpenMeteoError, get_hourly_et0
+from .models import AMPCRecommendation, ControlState, EstimationCycle, Greenhouse, GreenhouseControlProfile, SensorData
 from .services import enqueue_device_command, notify_pending_commands
 from .user_resources import default_owner, ensure_user_greenhouse_config
 
+PROFILE_SNAPSHOT_FIELDS = (
+    'crop_name', 'crop_kc', 'latitude', 'longitude', 'soil_type', 'theta_fc',
+    'theta_wp', 'root_depth_m', 'depletion_fraction_p', 'pump_efficiency',
+    'pump_flow_lps', 'irrigation_area_m2', 'target_low', 'target_high',
+    'step_seconds', 'horizon_steps', 'pump_min_seconds', 'pump_max_seconds',
+    'safety_stale_after_seconds', 'actuator_enabled',
+)
+
 
 def default_greenhouse(user=None) -> Greenhouse:
-    owner = user if getattr(user, 'is_authenticated', False) else None
-    if owner is None:
-        owner = default_owner()
-
-    greenhouse, _ = ensure_user_greenhouse_config(owner)
-    return greenhouse
+    owner = user if getattr(user, 'is_authenticated', False) else default_owner()
+    return ensure_user_greenhouse_config(owner)[0]
 
 
-def get_greenhouse_control_profile(
-    user=None,
-    *,
-    greenhouse: Greenhouse | None = None,
-) -> GreenhouseControlProfile:
-    """Return the control profile scoped to one greenhouse."""
+def get_greenhouse_control_profile(user=None, *, greenhouse: Greenhouse | None = None) -> GreenhouseControlProfile:
     greenhouse = greenhouse or default_greenhouse(user)
-    profile, _ = GreenhouseControlProfile.objects.get_or_create(
+    return GreenhouseControlProfile.objects.get_or_create(
         greenhouse=greenhouse,
         defaults={'singleton_key': f'gh-{greenhouse.pk}'},
-    )
-    return profile
+    )[0]
 
 
-def profile_to_config(
-    profile: GreenhouseControlProfile,
-    *,
-    et0_hour_mm: float | None = None,
-) -> ControllerConfig:
+def profile_to_config(profile: GreenhouseControlProfile, *, et0_hour_mm: float = 0.6) -> ControllerConfig:
     return ControllerConfig(
         step_seconds=profile.step_seconds,
         horizon_steps=profile.horizon_steps,
         target_band=TargetBand(low=profile.target_low, high=profile.target_high),
-        pump=PumpLimits(
-            min_seconds=profile.pump_min_seconds,
-            max_seconds=profile.pump_max_seconds,
-        ),
+        pump=PumpLimits(min_seconds=profile.pump_min_seconds, max_seconds=profile.pump_max_seconds),
         cost=CostWeights(
             band_violation=profile.cost_band_violation,
             terminal_band_violation=profile.cost_terminal_band_violation,
             water_use=profile.cost_water_use,
             switching=profile.cost_switching,
-            daily_cap_excess=profile.cost_daily_cap_excess,
         ),
         safety=SafetyConfig(
             stale_after_seconds=profile.safety_stale_after_seconds,
-            soft_daily_pump_cap_seconds=profile.soft_daily_pump_cap_seconds,
         ),
         fao56=Fao56Config(
             crop_kc=profile.crop_kc,
-            soil_type=getattr(profile, 'soil_type', 'loam'),
-            theta_fc=getattr(profile, 'theta_fc', 0.32),
-            theta_wp=getattr(profile, 'theta_wp', 0.15),
-            root_depth_m=getattr(profile, 'root_depth_m', 0.30),
-            depletion_fraction_p=getattr(profile, 'depletion_fraction_p', 0.5),
-            et0_hour_mm=0.6 if et0_hour_mm is None else et0_hour_mm,
-            pump_efficiency=getattr(profile, 'pump_efficiency', 0.8),
-            pump_flow_lps=getattr(profile, 'pump_flow_lps', 0.001),
-            irrigation_area_m2=getattr(profile, 'irrigation_area_m2', 0.25),
+            soil_type=profile.soil_type,
+            theta_fc=profile.theta_fc,
+            theta_wp=profile.theta_wp,
+            root_depth_m=profile.root_depth_m,
+            depletion_fraction_p=profile.depletion_fraction_p,
+            et0_hour_mm=et0_hour_mm,
+            pump_efficiency=profile.pump_efficiency,
+            pump_flow_lps=profile.pump_flow_lps,
+            irrigation_area_m2=profile.irrigation_area_m2,
         ),
     )
 
 
 def profile_snapshot(profile: GreenhouseControlProfile) -> dict:
-    return {
-        'crop_name': profile.crop_name,
-        'crop_kc': profile.crop_kc,
-        'latitude': getattr(profile, 'latitude', None),
-        'longitude': getattr(profile, 'longitude', None),
-        'soil_type': getattr(profile, 'soil_type', None),
-        'theta_fc': getattr(profile, 'theta_fc', None),
-        'theta_wp': getattr(profile, 'theta_wp', None),
-        'root_depth_m': getattr(profile, 'root_depth_m', None),
-        'depletion_fraction_p': getattr(profile, 'depletion_fraction_p', None),
-        'pump_efficiency': getattr(profile, 'pump_efficiency', None),
-        'pump_flow_lps': getattr(profile, 'pump_flow_lps', None),
-        'irrigation_area_m2': getattr(profile, 'irrigation_area_m2', None),
-        'target_low': profile.target_low,
-        'target_high': profile.target_high,
-        'step_seconds': profile.step_seconds,
-        'horizon_steps': profile.horizon_steps,
-        'pump_min_seconds': profile.pump_min_seconds,
-        'pump_max_seconds': profile.pump_max_seconds,
-        'soft_daily_pump_cap_seconds': profile.soft_daily_pump_cap_seconds,
-        'weights': {
-            'band': profile.cost_band_violation,
-            'water': profile.cost_water_use,
-            'switch': profile.cost_switching,
-            'daily': profile.cost_daily_cap_excess,
-            'terminal': profile.cost_terminal_band_violation,
-        },
-        'stale_after_seconds': profile.safety_stale_after_seconds,
-        'actuator_enabled': profile.actuator_enabled,
+    snapshot = {field: getattr(profile, field) for field in PROFILE_SNAPSHOT_FIELDS}
+    snapshot['weights'] = {
+        'band': profile.cost_band_violation,
+        'water': profile.cost_water_use,
+        'switch': profile.cost_switching,
+        'terminal': profile.cost_terminal_band_violation,
     }
+    return snapshot
 
 
-def _latest_control_state() -> ControlState:
-    control, _ = ControlState.objects.get_or_create(singleton_key='main')
-    return control
-
-
-def _latest_pump_seconds(greenhouse: Greenhouse | None) -> float:
+def latest_recommendation(*, greenhouse: Greenhouse | None = None) -> AMPCRecommendation | None:
     queryset = AMPCRecommendation.objects
     if greenhouse is not None:
         queryset = queryset.filter(greenhouse=greenhouse)
-    latest = queryset.order_by('-created_at', '-id').first()
-    return float(latest.pump_seconds) if latest else 0.0
-
-
-def _used_today_pump_seconds(
-    now: datetime,
-    *,
-    greenhouse: Greenhouse | None,
-) -> float:
-    day = timezone.localtime(now).date()
-    local_tz = timezone.get_current_timezone()
-    day_start = timezone.make_aware(datetime.combine(day, time.min), local_tz)
-    day_end = day_start + timedelta(days=1)
-    queryset = AMPCRecommendation.objects.filter(
-        created_at__gte=day_start,
-        created_at__lt=day_end,
-        safety_status='safe',
-        command_created=True,
-    )
-    if greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
-    total = queryset.aggregate(total=Sum('pump_seconds')).get('total')
-    return float(total or 0.0)
-
-
-def _raw_fallback_delta() -> float:
-    return float(getattr(settings, 'MPC_RAW_FALLBACK_DELTA', 8.0))
-
-
-def _control_soil_moisture(cycle: EstimationCycle) -> float:
-    raw = cycle.raw_soil_moisture
-    posterior = cycle.kf_x_posterior
-    kalman_r = cycle.kf_R
-    if raw is not None and kalman_r is not None and float(kalman_r) > MAX_TRUSTED_KALMAN_R:
-        return float(raw)
-    if raw is not None and posterior is not None and abs(float(posterior) - float(raw)) > _raw_fallback_delta():
-        return float(raw)
-    if posterior is not None:
-        return float(posterior)
-    if raw is not None:
-        return float(raw)
-    raise ValueError('missing_soil_moisture')
+    return queryset.order_by('-created_at', '-id').first()
 
 
 def _uses_raw_fallback(cycle: EstimationCycle) -> bool:
-    return (
-        cycle.raw_soil_moisture is not None
-        and (
-            (
-                cycle.kf_x_posterior is not None
-                and abs(float(cycle.kf_x_posterior) - float(cycle.raw_soil_moisture)) > _raw_fallback_delta()
-            )
-            or (
-                cycle.kf_R is not None
-                and float(cycle.kf_R) > MAX_TRUSTED_KALMAN_R
-            )
-        )
+    raw = cycle.raw_soil_moisture
+    if raw is None:
+        return False
+    posterior_too_far = (
+        cycle.kf_x_posterior is not None
+        and abs(float(cycle.kf_x_posterior) - float(raw))
+        > float(getattr(settings, 'MPC_RAW_FALLBACK_DELTA', 8.0))
+    )
+    uncertainty_too_high = cycle.kf_R is not None and float(cycle.kf_R) > MAX_TRUSTED_KALMAN_R
+    return posterior_too_far or uncertainty_too_high
+
+
+def _latest_estimation(greenhouse: Greenhouse, config: ControllerConfig, now: datetime) -> EstimationCycle | None:
+    estimation = ensure_recent_window_estimations(
+        greenhouse=greenhouse,
+        step_seconds=config.step_seconds,
+        horizon_steps=config.horizon_steps,
+        end_time=now,
+    ) or latest_estimation(greenhouse=greenhouse)
+    if estimation is not None:
+        return estimation
+    reading = SensorData.objects.filter(greenhouse=greenhouse).order_by('-recorded_at', '-id').first()
+    return ensure_estimation_for_reading(reading) if reading is not None else None
+
+
+def _controller_state(estimation: EstimationCycle, greenhouse: Greenhouse) -> ControllerState:
+    previous = latest_recommendation(greenhouse=greenhouse)
+    return ControllerState(
+        timestamp=estimation.sample_ts,
+        kf_x_posterior=None if _uses_raw_fallback(estimation) else estimation.kf_x_posterior,
+        kf_R=estimation.kf_R,
+        raw_soil_moisture=estimation.raw_soil_moisture,
+        temperature=estimation.raw_temperature,
+        humidity=estimation.raw_humidity,
+        light=estimation.raw_light,
+        last_pump_seconds=float(previous.pump_seconds) if previous else 0.0,
     )
 
 
 def _state_snapshot(
     estimation: EstimationCycle,
     state: ControllerState,
-    *,
-    recommendation: Recommendation | None = None,
-    et0_result: ET0Reading | ET0Failure | None = None,
+    recommendation: Recommendation,
+    et0: ET0Reading | None,
 ) -> dict:
     snapshot = {
         'estimation_id': estimation.id,
-        'run_id': estimation.run_id,
         'timestamp': state.timestamp.isoformat(),
         'kf_x_posterior': estimation.kf_x_posterior,
         'kf_R': estimation.kf_R,
@@ -222,98 +146,57 @@ def _state_snapshot(
         'light': state.light,
         'last_pump_seconds': state.last_pump_seconds,
     }
-    if recommendation is not None and recommendation.fao56 is not None:
-        snapshot['fao56'] = dict(recommendation.fao56)
-        snapshot['fao56']['predicted_soil_moisture'] = list(recommendation.predicted_soil_moisture)
-    if isinstance(et0_result, ET0Reading):
-        snapshot['et0'] = {
-            'requested_hour': et0_result.requested_hour.isoformat(),
-            'et0_hour_mm': et0_result.et0_hour_mm,
-            'et0_step_mm': et0_result.et0_step_mm,
-            'step_seconds': et0_result.step_seconds,
-            'source': et0_result.source,
-            'fetched_at': et0_result.fetched_at.isoformat(),
+    if recommendation.fao56 is not None:
+        snapshot['fao56'] = {
+            **recommendation.fao56,
+            'predicted_soil_moisture': list(recommendation.predicted_soil_moisture),
         }
-    elif isinstance(et0_result, ET0Failure):
+    if et0 is not None:
         snapshot['et0'] = {
-            'requested_hour': et0_result.requested_hour.isoformat(),
-            'reason': et0_result.reason,
-            'detail': et0_result.detail,
-            'fail_closed': et0_result.fail_closed,
+            'requested_hour': et0.requested_hour.isoformat(),
+            'et0_hour_mm': et0.et0_hour_mm,
+            'et0_step_mm': et0.et0_step_mm,
+            'step_seconds': et0.step_seconds,
         }
     return snapshot
 
 
-def _fail_recommendation(config: ControllerConfig, safety_status: str, reason: str) -> Recommendation:
+def _failure(config: ControllerConfig, status: str, reason: str) -> Recommendation:
     return Recommendation(
         pump_seconds=config.safety.fail_closed_pump_seconds,
         step_seconds=config.step_seconds,
         predicted_soil_moisture=(),
         target_band={'low': config.target_band.low, 'high': config.target_band.high},
         cost=0.0,
-        safety_status=safety_status,
+        safety_status=status,
         reason=reason,
     )
 
 
-def _bounded_ampc_recommendation_text(field_name: str, value) -> str:
-    text = '' if value is None else str(value)
-    max_length = AMPCRecommendation._meta.get_field(field_name).max_length
-    if max_length is not None:
-        return text[:max_length]
-    return text
+def _bounded(field: str, value) -> str:
+    length = AMPCRecommendation._meta.get_field(field).max_length
+    return str(value or '')[:length] if length else str(value or '')
 
 
-def _invalid_config_audit(
-    *,
-    profile: GreenhouseControlProfile,
-    used_today: float,
-    reason: str,
-) -> AMPCRecommendation:
-    config = ControllerConfig()
-    recommendation = _fail_recommendation(config, 'config_error', reason)
-    audit = _persist_recommendation(
-        profile=profile,
-        config=config,
-        recommendation=recommendation,
-        estimation=None,
-        state=None,
-        used_today=used_today,
-        sensor_data=None,
-        actuator_status=(
-            AMPCRecommendation.ActuatorStatus.UNSAFE_SKIPPED
-            if profile.actuator_enabled
-            else AMPCRecommendation.ActuatorStatus.DISABLED
-        ),
-    )
-    audit.state_snapshot = {
-        'fail_closed': True,
-        'config_error': reason,
-    }
-    audit.save(update_fields=['state_snapshot', 'updated_at'])
-    return audit
-
-
-def _persist_recommendation(
-    *,
+def _persist(
     profile: GreenhouseControlProfile,
     config: ControllerConfig,
     recommendation: Recommendation,
-    estimation: EstimationCycle | None,
-    state: ControllerState | None,
-    used_today: float,
-    run: ExperimentRun | None = None,
-    sensor_data: SensorData | None = None,
-    actuator_status: str = AMPCRecommendation.ActuatorStatus.NOT_CALLED,
-    et0_result: ET0Reading | ET0Failure | None = None,
+    *,
+    estimation: EstimationCycle | None = None,
+    state: ControllerState | None = None,
+    et0: ET0Reading | None = None,
 ) -> AMPCRecommendation:
-    control = _latest_control_state()
-    safety_status = _bounded_ampc_recommendation_text('safety_status', recommendation.safety_status)
-    reason = _bounded_ampc_recommendation_text('reason', recommendation.reason)
+    sensor = None
+    if estimation is not None:
+        sensor = SensorData.objects.filter(
+            greenhouse=profile.greenhouse,
+            recorded_at=estimation.sample_ts,
+        ).order_by('-id').first()
+    control = ControlState.objects.get_or_create(singleton_key='main')[0]
     return AMPCRecommendation.objects.create(
-        sensor_data=sensor_data,
+        sensor_data=sensor,
         greenhouse=profile.greenhouse,
-        run=run,
         estimation=estimation,
         mode=control.mode,
         pump_seconds=float(recommendation.pump_seconds),
@@ -321,22 +204,35 @@ def _persist_recommendation(
         predicted_soil_moisture=list(recommendation.predicted_soil_moisture),
         target_band=dict(recommendation.target_band),
         objective_cost=float(recommendation.cost),
-        safety_status=safety_status,
-        reason=reason,
-        used_today_pump_seconds=used_today,
-        actuator_status=actuator_status,
-        config_snapshot=profile_snapshot(profile),
-        state_snapshot=(
-            _state_snapshot(
-                estimation,
-                state,
-                recommendation=recommendation,
-                et0_result=et0_result,
-            )
-            if estimation and state
-            else {}
+        safety_status=_bounded('safety_status', recommendation.safety_status),
+        reason=_bounded('reason', recommendation.reason),
+        actuator_status=(
+            AMPCRecommendation.ActuatorStatus.DISABLED
+            if not profile.actuator_enabled
+            else AMPCRecommendation.ActuatorStatus.NOT_CALLED
+            if state is not None
+            else AMPCRecommendation.ActuatorStatus.UNSAFE_SKIPPED
         ),
+        config_snapshot=profile_snapshot(profile),
+        state_snapshot=_state_snapshot(estimation, state, recommendation, et0) if estimation and state else {},
     )
+
+
+def _persist_failure(
+    profile: GreenhouseControlProfile,
+    reason: str,
+    *,
+    config: ControllerConfig | None = None,
+    status: str = 'model_error',
+    estimation: EstimationCycle | None = None,
+    state: ControllerState | None = None,
+) -> AMPCRecommendation:
+    config = config or ControllerConfig()
+    audit = _persist(profile, config, _failure(config, status, reason), estimation=estimation, state=state)
+    if status == 'config_error':
+        audit.state_snapshot = {'fail_closed': True, 'config_error': reason}
+        audit.save(update_fields=['state_snapshot', 'updated_at'])
+    return audit
 
 
 def _queue_pump_command(audit: AMPCRecommendation) -> AMPCRecommendation:
@@ -346,7 +242,7 @@ def _queue_pump_command(audit: AMPCRecommendation) -> AMPCRecommendation:
         return audit
 
     is_on = audit.pump_seconds > 0
-    command = enqueue_device_command(
+    audit.device_command = enqueue_device_command(
         device_code='pump',
         command='set_power',
         value='on' if is_on else 'off',
@@ -358,16 +254,10 @@ def _queue_pump_command(audit: AMPCRecommendation) -> AMPCRecommendation:
             'safety_status': audit.safety_status,
         },
     )
-    audit.device_command = command
     audit.command_created = True
     audit.actuator_status = AMPCRecommendation.ActuatorStatus.QUEUED
-    if is_on:
-        audit.used_today_pump_seconds = float(audit.used_today_pump_seconds or 0.0) + float(audit.pump_seconds)
     audit.save(update_fields=[
-        'device_command',
-        'command_created',
-        'actuator_status',
-        'used_today_pump_seconds',
+        'device_command', 'command_created', 'actuator_status',
         'updated_at',
     ])
     notify_pending_commands()
@@ -383,139 +273,37 @@ def run_auto_recommendation(
     greenhouse = greenhouse or default_greenhouse(user)
     profile = get_greenhouse_control_profile(greenhouse=greenhouse)
     now = timezone.now()
-    used_today = _used_today_pump_seconds(now, greenhouse=greenhouse)
-    et0_result: ET0Reading | ET0Failure | None = None
+
     try:
         config = profile_to_config(profile)
     except ValueError as exc:
-        return _invalid_config_audit(
-            profile=profile,
-            used_today=used_today,
-            reason=f'invalid_fao_config:{exc}',
-        )
+        return _persist_failure(profile, f'invalid_fao_config:{exc}', status='config_error')
 
-    latest = ensure_recent_window_estimations(
-        greenhouse=greenhouse,
-        step_seconds=config.step_seconds,
-        horizon_steps=config.horizon_steps,
-        end_time=now,
-    ) or latest_estimation(greenhouse=greenhouse)
-    if latest is None:
-        reading_query = SensorData.objects
-        if greenhouse is not None:
-            reading_query = reading_query.filter(greenhouse=greenhouse)
-        reading = reading_query.order_by('-recorded_at', '-id').first()
-        if reading is not None:
-            latest = ensure_estimation_for_reading(reading)
-
-    if latest is None:
-        recommendation = _fail_recommendation(config, 'model_error', 'missing_estimation')
-        return _persist_recommendation(
-            profile=profile,
-            config=config,
-            recommendation=recommendation,
-            estimation=None,
-            state=None,
-            used_today=used_today,
-            sensor_data=None,
-            actuator_status=(
-                AMPCRecommendation.ActuatorStatus.UNSAFE_SKIPPED
-                if profile.actuator_enabled
-                else AMPCRecommendation.ActuatorStatus.DISABLED
-            ),
-        )
-
-    sensor_query = SensorData.objects.filter(recorded_at=latest.sample_ts)
-    if greenhouse is not None:
-        sensor_query = sensor_query.filter(greenhouse=greenhouse)
-    sensor_data = sensor_query.order_by('-id').first()
-    use_raw_fallback = _uses_raw_fallback(latest)
-    state = ControllerState(
-        timestamp=latest.sample_ts,
-        kf_x_posterior=None if use_raw_fallback else latest.kf_x_posterior,
-        kf_R=latest.kf_R,
-        raw_soil_moisture=latest.raw_soil_moisture,
-        temperature=latest.raw_temperature,
-        humidity=latest.raw_humidity,
-        light=latest.raw_light,
-        last_pump_seconds=_latest_pump_seconds(greenhouse),
-        run_id=latest.run_id,
-    )
-
-    et0_result = get_hourly_et0(
-        now,
-        step_seconds=config.step_seconds,
-        greenhouse=greenhouse,
-    )
-    if isinstance(et0_result, ET0Failure):
-        recommendation = _fail_recommendation(
-            config,
-            'pump_off_failsafe',
-            et0_result.reason,
-        )
-        audit = _persist_recommendation(
-            profile=profile,
-            config=config,
-            recommendation=recommendation,
-            estimation=latest,
-            state=state,
-            used_today=used_today,
-            run=latest.run,
-            sensor_data=sensor_data,
-            actuator_status=(
-                AMPCRecommendation.ActuatorStatus.DISABLED
-                if not profile.actuator_enabled
-                else AMPCRecommendation.ActuatorStatus.NOT_CALLED
-            ),
-            et0_result=et0_result,
-        )
-        control = _latest_control_state()
-        if create_command_if_auto and profile.actuator_enabled and control.mode == ControlState.Mode.AUTO:
-            return _queue_pump_command(audit)
-        return audit
+    estimation = _latest_estimation(greenhouse, config, now)
+    if estimation is None:
+        return _persist_failure(profile, 'missing_estimation', config=config)
+    state = _controller_state(estimation, greenhouse)
 
     try:
-        config = profile_to_config(profile, et0_hour_mm=et0_result.et0_hour_mm)
-    except ValueError as exc:
-        return _invalid_config_audit(
-            profile=profile,
-            used_today=used_today,
-            reason=f'invalid_fao_config:{exc}',
+        et0 = get_hourly_et0(now, step_seconds=config.step_seconds, greenhouse=greenhouse)
+        config = profile_to_config(profile, et0_hour_mm=et0.et0_hour_mm)
+    except OpenMeteoError as exc:
+        return _persist_failure(
+            profile, f'et0_unavailable:{exc}',
+            config=config, estimation=estimation, state=state,
         )
+    except ValueError as exc:
+        return _persist_failure(profile, f'invalid_fao_config:{exc}', status='config_error')
 
     try:
         recommendation = ScipyMpcSolver(config).recommend(
             state=state,
             now=now,
-            used_today_pump_seconds=used_today,
         )
     except Exception as exc:
-        recommendation = _fail_recommendation(config, 'model_error', str(exc))
+        recommendation = _failure(config, 'model_error', str(exc))
 
-    audit = _persist_recommendation(
-        profile=profile,
-        config=config,
-        recommendation=recommendation,
-        estimation=latest,
-        state=state,
-        used_today=used_today,
-        run=latest.run,
-        sensor_data=sensor_data,
-        actuator_status=AMPCRecommendation.ActuatorStatus.DISABLED if not profile.actuator_enabled else AMPCRecommendation.ActuatorStatus.NOT_CALLED,
-        et0_result=et0_result,
-    )
-
-    control = _latest_control_state()
-    if create_command_if_auto and profile.actuator_enabled and control.mode == ControlState.Mode.AUTO:
+    audit = _persist(profile, config, recommendation, estimation=estimation, state=state, et0=et0)
+    if create_command_if_auto and profile.actuator_enabled and audit.mode == ControlState.Mode.AUTO:
         return _queue_pump_command(audit)
     return audit
-
-
-def latest_recommendation(
-    *,
-    greenhouse: Greenhouse | None = None,
-) -> AMPCRecommendation | None:
-    queryset = AMPCRecommendation.objects
-    if greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
-    return queryset.order_by('-created_at', '-id').first()

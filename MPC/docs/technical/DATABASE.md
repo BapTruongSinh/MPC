@@ -1,14 +1,13 @@
-﻿# MPC Database Notes
+# MPC Database Notes
 
+MPC does not own database models. Green-House provides the current state and
+configuration before calling the solver.
 
-## Future Integration
+Runtime data is scoped by `greenhouse_id`:
 
-Náº¿u sau nÃ y tÃ­ch há»£p vá»›i `Kalman/`, nguá»“n dá»¯ liá»‡u chÃ­nh sáº½ lÃ :
+- `greenhouse_control_profiles` stores one controller configuration per greenhouse.
+- `api_estimationcycle` stores Kalman/live-window state for each greenhouse.
+- `api_ampcrecommendation` stores MPC recommendations for each greenhouse.
 
-- `PipelineCycle.kf_x_posterior` lÃ m state chÃ­nh.
-- `PipelineCycle.raw_soil_moisture` lÃ m fallback.
-- `PipelineCycle.temperature`, `humidity`, `light` lÃ m measured disturbance.
-- `ExperimentRun` lÃ m run identity.
-
-KhÃ´ng thÃªm báº£ng má»›i cho MPC trong scaffold nÃ y. Náº¿u cáº§n lÆ°u recommendation/history, táº¡o task database riÃªng vÃ  cáº­p nháº­t ADR trÆ°á»›c.
-
+Legacy experiment run/config/evaluation tables are not part of the runtime
+pipeline.

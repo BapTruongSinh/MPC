@@ -47,11 +47,9 @@ export interface ControlProfile {
   horizon_steps: number;
   pump_min_seconds: number;
   pump_max_seconds: number;
-  soft_daily_pump_cap_seconds: number;
   weight_band: number;
   weight_water: number;
   weight_switch: number;
-  weight_daily: number;
   weight_terminal: number;
   stale_after_seconds: number;
   actuator_enabled: boolean;
@@ -85,20 +83,6 @@ export interface EstimationCycle {
   error_message?: string;
 }
 
-export interface RunItem {
-  id: number;
-  name: string;
-  run_type: string;
-  status: string;
-  greenhouse_id: number | null;
-  greenhouse_name: string;
-  created_at: string;
-}
-
-export const getRuns = () => apiClient.get<RunItem[]>("/runs/");
-export const getRunSeries = (runId: number, limit = 500) =>
-  apiClient.get<EstimationCycle[]>(`/runs/${runId}/series/?limit=${limit}`);
-
 export interface MPCRecommendation {
   id: number;
   sensor_data: number | null;
@@ -112,7 +96,6 @@ export interface MPCRecommendation {
   objective_cost: number;
   safety_status: string;
   reason: string;
-  used_today_pump_seconds: number;
   command_created: boolean;
   actuator_status: string;
   config_snapshot?: Record<string, unknown> | null;
@@ -137,10 +120,6 @@ export interface ET0Audit {
   et0_hour_mm?: number | null;
   et0_step_mm?: number | null;
   step_seconds?: number | null;
-  source?: string;
-  fetched_at?: string;
-  reason?: string;
-  fail_closed?: boolean;
 }
 
 export interface MPCStateSnapshot {

@@ -8,7 +8,6 @@ MPC exposes Python package contracts for backend integration and tests.
 
 ```json
 {
-  "run_id": 1,
   "timestamp": "2026-05-08T10:00:00Z",
   "kf_x_posterior": 58.2,
   "kf_R": 1.4,
@@ -116,7 +115,7 @@ Cost grouping:
 ```text
 J_tracking = stress_total + overwater_total + terminal_total
 J_control = switching_total
-J_resource = water_total + daily_cap_total
+J_resource = water_total
 J = J_tracking + J_control + J_resource
 ```
 

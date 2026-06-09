@@ -10,19 +10,10 @@ from mpc.core.config import ControllerConfig
 
 FieldSpec = tuple[str, str, str] | tuple[str, str, str, dict[str, Any]]
 
-DEFAULT_RUNTIME_VALUES: dict[str, int | float | None] = {
-    "used_today_pump_seconds": 0.0,
-}
-
 USER_INPUT_FIELDS: tuple[FieldSpec, ...] = (
     ("target_band.low", "number", "Lower soil moisture bound for the crop."),
     ("target_band.high", "number", "Upper soil moisture bound for the crop."),
     ("pump.max_seconds", "number", "Maximum pump seconds in one control step."),
-    (
-        "safety.soft_daily_pump_cap_seconds",
-        "number",
-        "Soft cap for total pump seconds per day.",
-    ),
     ("fao56.crop_kc", "number", "Crop coefficient used by FAO-56 ETc adjustment."),
     (
         "fao56.soil_type",
@@ -74,7 +65,6 @@ SYSTEM_DEFAULT_FIELDS: tuple[FieldSpec, ...] = (
     ("cost.band_violation", "number", "Weight for target-band error."),
     ("cost.water_use", "number", "Weight for water use."),
     ("cost.switching", "number", "Weight for changing pump command."),
-    ("cost.daily_cap_excess", "number", "Weight for exceeding the soft daily cap."),
     (
         "cost.terminal_band_violation",
         "number",
@@ -97,7 +87,6 @@ def default_config_schema() -> dict[str, Any]:
     return {
         "schema_version": 1,
         "controller_defaults": controller_config_to_dict(ControllerConfig()),
-        "runtime_defaults": dict(DEFAULT_RUNTIME_VALUES),
         "field_groups": {
             "user_inputs": [_field_from_spec(spec) for spec in USER_INPUT_FIELDS],
             "system_defaults": [

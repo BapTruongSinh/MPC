@@ -38,14 +38,12 @@ def run_closed_loop(
     state: ControllerState,
     config: ControllerConfig,
     now: datetime | None = None,
-    used_today_pump_seconds: float = 0.0,
     actuator_client: ActuatorClient | None = None,
     command_id_factory: Callable[[], str] | None = None,
 ) -> ClosedLoopResult:
     recommendation = ScipyMpcSolver(config).recommend(
         state=state,
         now=now,
-        used_today_pump_seconds=used_today_pump_seconds,
     )
     command = _command_from_recommendation(
         state=state,
@@ -134,7 +132,6 @@ def _command_from_recommendation(
     return ActuatorCommand(
         command_id=_command_id(command_id_factory),
         timestamp=_command_time(now),
-        run_id=state.run_id,
         pump_seconds=config.pump.clamp(pump_seconds),
         step_seconds=config.step_seconds,
         mode="auto",
@@ -154,7 +151,6 @@ def _fail_closed_command(
     return ActuatorCommand(
         command_id=_command_id(command_id_factory),
         timestamp=_command_time(now),
-        run_id=state.run_id,
         pump_seconds=config.safety.fail_closed_pump_seconds,
         step_seconds=config.step_seconds,
         mode="auto",

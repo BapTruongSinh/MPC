@@ -375,7 +375,7 @@ export function ForecastPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="elevated-card rounded-3xl p-5">
           <div className="flex items-center justify-between mb-4">
             <Sprout className="w-5 h-5 text-green-600" />
@@ -403,15 +403,6 @@ export function ForecastPage() {
           </p>
         </div>
 
-        <div className="elevated-card rounded-3xl p-5">
-          <p className="text-slate-500" style={{ fontSize: "12px" }}>Đã bơm hôm nay</p>
-          <p className="text-slate-900 mt-1" style={{ fontSize: "30px", fontWeight: 800 }}>
-            {fmt(recommendation?.used_today_pump_seconds ?? 0, 0)}s
-          </p>
-          <p className="text-slate-400 mt-1" style={{ fontSize: "11px" }}>
-            Giới hạn ngày được tính trong cost
-          </p>
-        </div>
       </div>
 
       <FaoAuditPanel recommendation={recommendation} />

@@ -85,17 +85,3 @@ def test_controller_state_from_mapping_validates_last_pump_seconds() -> None:
                 "last_pump_seconds": None,
             }
         )
-
-
-def test_controller_state_from_mapping_validates_run_id() -> None:
-    with pytest.raises(ValueError, match="run_id"):
-        ControllerState.from_mapping(
-            {
-                "timestamp": "2026-05-08T10:00:00Z",
-                "raw_soil_moisture": 55.0,
-                "temperature": 27.0,
-                "humidity": 72.0,
-                "light": 300.0,
-                "run_id": "1",
-            }
-        )

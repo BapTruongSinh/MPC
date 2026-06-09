@@ -34,7 +34,6 @@ class ScipyMpcSolver:
         *,
         state: ControllerState,
         now: datetime | None = None,
-        used_today_pump_seconds: float = 0.0,
     ) -> Recommendation:
         try:
             self._validate_state(state, now=now)
@@ -44,14 +43,8 @@ class ScipyMpcSolver:
                 return self._fail_closed("stale_sample", "stale_sample")
             return self._fail_closed("pump_off_failsafe", reason)
 
-        if not isfinite(used_today_pump_seconds) or used_today_pump_seconds < 0.0:
-            return self._fail_closed("config_error", "used_today_invalid")
-
         try:
-            best = self._solve(
-                state=state,
-                used_today_pump_seconds=used_today_pump_seconds,
-            )
+            best = self._solve(state=state)
         except RuntimeError as exc:
             return self._fail_closed("solver_error", str(exc))
         except Exception as exc:  # noqa: BLE001
@@ -74,7 +67,6 @@ class ScipyMpcSolver:
         self,
         *,
         state: ControllerState,
-        used_today_pump_seconds: float,
     ) -> Fao56Trajectory:
         horizon = self.config.horizon_steps
         bounds = [
@@ -87,7 +79,6 @@ class ScipyMpcSolver:
             lambda values: self._objective(
                 values,
                 state=state,
-                used_today_pump_seconds=used_today_pump_seconds,
             ),
             x0=np.asarray(initial, dtype=float),
             bounds=bounds,
@@ -109,7 +100,6 @@ class ScipyMpcSolver:
         return self._score_sequence(
             state=state,
             sequence=sequence,
-            used_today_pump_seconds=used_today_pump_seconds,
         )
 
     def _objective(
@@ -117,7 +107,6 @@ class ScipyMpcSolver:
         values: np.ndarray,
         *,
         state: ControllerState,
-        used_today_pump_seconds: float,
     ) -> float:
         try:
             sequence = tuple(
@@ -127,7 +116,6 @@ class ScipyMpcSolver:
             return self._score_sequence(
                 state=state,
                 sequence=sequence,
-                used_today_pump_seconds=used_today_pump_seconds,
             ).cost.total
         except Exception:  # noqa: BLE001
             return float("inf")
@@ -137,13 +125,11 @@ class ScipyMpcSolver:
         *,
         state: ControllerState,
         sequence: tuple[float, ...],
-        used_today_pump_seconds: float,
     ) -> Fao56Trajectory:
         return score_fao56_trajectory(
             initial_sensor_percent=state.soil_moisture,
             pump_seconds=sequence,
             previous_pump_seconds=state.last_pump_seconds,
-            used_today_pump_seconds=used_today_pump_seconds,
             config=self.config,
         )
 
@@ -197,12 +183,10 @@ def recommend(
     state: ControllerState,
     config: ControllerConfig | None = None,
     now: datetime | None = None,
-    used_today_pump_seconds: float = 0.0,
 ) -> Recommendation:
     return ScipyMpcSolver(config).recommend(
         state=state,
         now=now,
-        used_today_pump_seconds=used_today_pump_seconds,
     )
 
 

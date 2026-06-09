@@ -61,7 +61,6 @@ class CostWeights:
     terminal_band_violation: float = 20.0
     water_use: float = 0.2
     switching: float = 0.5
-    daily_cap_excess: float = 2.0
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -69,7 +68,6 @@ class CostWeights:
             ("cost.terminal_band_violation", self.terminal_band_violation),
             ("cost.water_use", self.water_use),
             ("cost.switching", self.switching),
-            ("cost.daily_cap_excess", self.daily_cap_excess),
         ):
             _require_finite(name, value)
             if value < 0.0:
@@ -81,16 +79,11 @@ class SafetyConfig:
     state_min: float = 0.0
     state_max: float = 100.0
     stale_after_seconds: int = 600
-    soft_daily_pump_cap_seconds: float = 1800.0
     fail_closed_pump_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         _require_finite("safety.state_min", self.state_min)
         _require_finite("safety.state_max", self.state_max)
-        _require_finite(
-            "safety.soft_daily_pump_cap_seconds",
-            self.soft_daily_pump_cap_seconds,
-        )
         _require_finite(
             "safety.fail_closed_pump_seconds",
             self.fail_closed_pump_seconds,
@@ -99,8 +92,6 @@ class SafetyConfig:
             raise ValueError("safety.state_min must be < safety.state_max")
         if self.stale_after_seconds <= 0:
             raise ValueError("safety.stale_after_seconds must be > 0")
-        if self.soft_daily_pump_cap_seconds <= 0.0:
-            raise ValueError("soft daily cap must be > 0")
         if self.fail_closed_pump_seconds != 0.0:
             raise ValueError("fail-closed pump command must remain 0 seconds")
 
@@ -185,7 +176,6 @@ def controller_config_from_mapping(
             ),
             water_use=float(cost_raw.get("water_use", 0.2)),
             switching=float(cost_raw.get("switching", 0.5)),
-            daily_cap_excess=float(cost_raw.get("daily_cap_excess", 2.0)),
         ),
         safety=SafetyConfig(
             state_min=float(safety_raw.get("state_min", 0.0)),
@@ -193,9 +183,6 @@ def controller_config_from_mapping(
             stale_after_seconds=_strict_int(
                 safety_raw.get("stale_after_seconds", 600),
                 "safety.stale_after_seconds",
-            ),
-            soft_daily_pump_cap_seconds=float(
-                safety_raw.get("soft_daily_pump_cap_seconds", 1800.0)
             ),
             fail_closed_pump_seconds=float(
                 safety_raw.get("fail_closed_pump_seconds", 0.0)

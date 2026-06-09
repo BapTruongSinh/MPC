@@ -162,7 +162,6 @@ def _state(timestamp: datetime) -> ControllerState:
         humidity=72.0,
         light=300.0,
         last_pump_seconds=0.0,
-        run_id=7,
     )
 
 class _FakeActuatorClient:

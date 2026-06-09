@@ -110,7 +110,6 @@ def test_scipy_solver_switching_penalty_can_preserve_previous_command() -> None:
             terminal_band_violation=0.0,
             water_use=0.0,
             switching=1.0,
-            daily_cap_excess=0.0,
         )
     )
 
@@ -120,17 +119,6 @@ def test_scipy_solver_switching_penalty_can_preserve_previous_command() -> None:
     )
 
     assert recommendation.pump_seconds == pytest.approx(300.0)
-
-
-def test_scipy_solver_rejects_negative_used_today_fails_closed() -> None:
-    recommendation = ScipyMpcSolver().recommend(
-        state=_state(60.0),
-        now=NOW,
-        used_today_pump_seconds=-1.0,
-    )
-
-    assert recommendation.safety_status == "config_error"
-    assert recommendation.pump_seconds == 0.0
 
 
 def test_scipy_solver_returns_same_output_for_same_input() -> None:

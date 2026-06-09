@@ -15,14 +15,12 @@ integration.
     "band_violation": 10.0,
     "terminal_band_violation": 20.0,
     "water_use": 0.2,
-    "switching": 0.5,
-    "daily_cap_excess": 2.0
+    "switching": 0.5
   },
   "safety": {
     "state_min": 0.0,
     "state_max": 100.0,
     "stale_after_seconds": 600,
-    "soft_daily_pump_cap_seconds": 1800.0,
     "fail_closed_pump_seconds": 0.0
   }
 }
@@ -54,7 +52,6 @@ integration.
 - `pump.max_seconds > pump.min_seconds`
 - `step_seconds > 0`
 - `horizon_steps >= 1`
-- `soft_daily_pump_cap_seconds > 0`
 - `fail_closed_pump_seconds == 0`
 - `0 < depletion_fraction_p < 1`
 - `0 <= theta_wp < theta_fc <= 0.8`

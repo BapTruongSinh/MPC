@@ -7,7 +7,7 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from api.ampc import _used_today_pump_seconds, default_greenhouse, get_greenhouse_control_profile
+from api.ampc import default_greenhouse, get_greenhouse_control_profile
 from api.estimation import ensure_estimation_for_sensor_window
 from api.models import AMPCRecommendation, EstimationCycle, Greenhouse, GreenhouseControlProfile, SensorData
 from api.services import ingest_sensor_payload
@@ -33,6 +33,8 @@ class GreenHouseRuntimeApiTests(TestCase):
         self.assertNotIn('adaptive_max_abs_residual', payload)
         self.assertNotIn('adaptive_bias_window', payload)
         self.assertNotIn('adaptive_max_abs_bias', payload)
+        self.assertNotIn('soft_daily_pump_cap_seconds', payload)
+        self.assertNotIn('weight_daily', payload)
 
     def test_auto_settings_soil_preset_updates_theta_without_theta_sat(self):
         response = self.client.patch(
@@ -307,35 +309,6 @@ class GreenHouseRuntimeApiTests(TestCase):
         history = response.json()['history']
         self.assertEqual([row['soil_moisture'] for row in history], [70.0, 68.0, 66.0, 64.0, 62.0, 60.0])
         self.assertEqual(history[0]['payload']['source'], 'test-replay')
-
-    def test_used_today_counts_only_queued_pump_commands_in_local_day(self):
-        greenhouse = default_greenhouse(self.user)
-        now = timezone.now()
-        AMPCRecommendation.objects.create(
-            greenhouse=greenhouse,
-            pump_seconds=3.0,
-            step_seconds=300,
-            predicted_soil_moisture=[],
-            target_band={'low': 55.0, 'high': 65.0},
-            objective_cost=0.0,
-            safety_status='safe',
-            reason='within_raw',
-            command_created=False,
-        )
-        AMPCRecommendation.objects.create(
-            greenhouse=greenhouse,
-            pump_seconds=7.0,
-            step_seconds=300,
-            predicted_soil_moisture=[],
-            target_band={'low': 55.0, 'high': 65.0},
-            objective_cost=0.0,
-            safety_status='safe',
-            reason='within_raw',
-            command_created=True,
-            actuator_status=AMPCRecommendation.ActuatorStatus.QUEUED,
-        )
-
-        self.assertAlmostEqual(_used_today_pump_seconds(now, greenhouse=greenhouse), 7.0)
 
     def test_forecast_recommendation_has_no_legacy_adaptive_fields(self):
         greenhouse = default_greenhouse(self.user)

@@ -27,14 +27,6 @@ def _required_finite(value: float | int | None, field_name: str) -> float:
     return numeric
 
 
-def _optional_int(value: Any, field_name: str) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"{field_name} must be an int or null")
-    return value
-
-
 @dataclass(frozen=True)
 class ControllerState:
     """Latest controller state from Kalman/live payload."""
@@ -47,7 +39,6 @@ class ControllerState:
     humidity: float | None = None
     light: float | None = None
     last_pump_seconds: float = 0.0
-    run_id: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.timestamp, datetime):
@@ -59,7 +50,6 @@ class ControllerState:
         _finite_or_none(self.humidity, "humidity")
         _finite_or_none(self.light, "light")
         _required_finite(self.last_pump_seconds, "last_pump_seconds")
-        _optional_int(self.run_id, "run_id")
 
     @property
     def soil_moisture(self) -> float:
@@ -105,6 +95,5 @@ class ControllerState:
                 payload.get("last_pump_seconds", 0.0),
                 "last_pump_seconds",
             ),
-            run_id=_optional_int(payload.get("run_id"), "run_id"),
         )
 

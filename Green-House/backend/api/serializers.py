@@ -10,13 +10,10 @@ from .models import (
     AMPCRecommendation,
     AMPCSchedulerState,
     Alert,
-    ControlProfile,
     ControlState,
     DeviceCommand,
     DeviceState,
     EstimationCycle,
-    EvaluationSummary,
-    ExperimentRun,
     FAO56_SOIL_PRESETS,
     GreenhouseControlProfile,
     SensorData,
@@ -54,30 +51,12 @@ GREENHOUSE_RUNTIME_NUMERIC_DEFAULTS = {
     "horizon_steps": 12,
     "pump_min_seconds": 0.0,
     "pump_max_seconds": 300.0,
-    "soft_daily_pump_cap_seconds": 1800.0,
     "cost_band_violation": 10.0,
     "cost_water_use": 0.2,
     "cost_switching": 0.5,
-    "cost_daily_cap_excess": 2.0,
     "cost_terminal_band_violation": 20.0,
     "safety_stale_after_seconds": 600,
     "actuator_timeout_seconds": 5.0,
-}
-LEGACY_RUNTIME_NUMERIC_DEFAULTS = {
-    "crop_kc": 1.0,
-    "target_low": 55.0,
-    "target_high": 65.0,
-    "step_seconds": 300,
-    "horizon_steps": 12,
-    "pump_min_seconds": 0.0,
-    "pump_max_seconds": 300.0,
-    "soft_daily_pump_cap_seconds": 1800.0,
-    "weight_band": 10.0,
-    "weight_water": 0.2,
-    "weight_switch": 0.5,
-    "weight_daily": 2.0,
-    "weight_terminal": 20.0,
-    "stale_after_seconds": 600,
 }
 SENSOR_FIELD_BOUNDS = {
     "soil_moisture": (0.0, 100.0),
@@ -222,7 +201,6 @@ def _validate_runtime_common(
     horizon_steps = _finite_runtime_value(instance, attrs, "horizon_steps", defaults)
     pump_min = _finite_runtime_value(instance, attrs, "pump_min_seconds", defaults)
     pump_max = _finite_runtime_value(instance, attrs, "pump_max_seconds", defaults)
-    soft_daily_cap = _finite_runtime_value(instance, attrs, "soft_daily_pump_cap_seconds", defaults)
     stale_after_seconds = _finite_runtime_value(instance, attrs, stale_field, defaults)
 
     if crop_kc < 0:
@@ -253,10 +231,6 @@ def _validate_runtime_common(
         raise serializers.ValidationError({"horizon_steps": "horizon_steps must be >= 1"})
     if pump_min < 0 or pump_max <= pump_min:
         raise serializers.ValidationError("pump_max_seconds must be greater than pump_min_seconds")
-    if soft_daily_cap <= 0:
-        raise serializers.ValidationError({
-            "soft_daily_pump_cap_seconds": "soft_daily_pump_cap_seconds must be > 0"
-        })
     for field in cost_fields:
         value = _finite_runtime_value(instance, attrs, field, defaults)
         if value < 0:
@@ -322,61 +296,6 @@ class SensorDataSerializer(serializers.ModelSerializer):
         ]
 
 
-class RunListSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ExperimentRun
-        fields = ["id", "name", "run_type", "status", "created_at"]
-
-
-class CycleSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = EstimationCycle
-        fields = [
-            "cycle_index",
-            "slice_type",
-            "sample_ts",
-            "raw_soil_moisture",
-            "arx_predicted",
-            "kf_x_posterior",
-            "kf_innovation",
-            "kf_R",
-            "latency_ms",
-            "preprocess_status",
-            "cycle_status",
-            "adaptive_status",
-        ]
-
-
-class EvaluationSummarySerializer(serializers.ModelSerializer):
-    cycle_success_rate = serializers.FloatField(read_only=True)
-    sample_loss_rate = serializers.FloatField(read_only=True)
-    passes_acceptance_gate = serializers.BooleanField(read_only=True)
-
-    class Meta:
-        model = EvaluationSummary
-        fields = [
-            "run_id",
-            "total_samples",
-            "accepted_samples",
-            "dropped_samples",
-            "success_cycles",
-            "failed_cycles",
-            "mae_arx_vs_observed",
-            "mae_kf_vs_observed",
-            "rmse_arx_vs_observed",
-            "rmse_kf_vs_observed",
-            "avg_latency_ms",
-            "p95_latency_ms",
-            "max_latency_ms",
-            "avg_R",
-            "min_R",
-            "max_R",
-            "cycle_success_rate",
-            "sample_loss_rate",
-            "passes_acceptance_gate",
-        ]
-
-
 class ControlStateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ControlState
@@ -407,7 +326,6 @@ class EstimationCycleSerializer(serializers.ModelSerializer):
             "id",
             "sample_ts",
             "cycle_index",
-            "run_id",
             "slice_type",
             "source_type",
             "validation_status",
@@ -436,46 +354,6 @@ class EstimationCycleSerializer(serializers.ModelSerializer):
         ]
 
 
-class ControlProfileSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ControlProfile
-        fields = [
-            "crop_name",
-            "crop_kc",
-            "target_low",
-            "target_high",
-            "step_seconds",
-            "horizon_steps",
-            "pump_min_seconds",
-            "pump_max_seconds",
-            "soft_daily_pump_cap_seconds",
-            "weight_band",
-            "weight_water",
-            "weight_switch",
-            "weight_daily",
-            "weight_terminal",
-            "stale_after_seconds",
-            "actuator_enabled",
-            "updated_at",
-        ]
-
-    def validate(self, attrs):
-        _validate_runtime_common(
-            self.instance,
-            attrs,
-            LEGACY_RUNTIME_NUMERIC_DEFAULTS,
-            (
-                "weight_band",
-                "weight_water",
-                "weight_switch",
-                "weight_daily",
-                "weight_terminal",
-            ),
-            "stale_after_seconds",
-        )
-        return attrs
-
-
 class GreenhouseControlProfileSerializer(serializers.ModelSerializer):
     actuator_configured = serializers.BooleanField(read_only=True)
 
@@ -490,7 +368,6 @@ class GreenhouseControlProfileSerializer(serializers.ModelSerializer):
             "target_low",
             "target_high",
             "pump_max_seconds",
-            "soft_daily_pump_cap_seconds",
             "actuator_enabled",
             "step_seconds",
             "horizon_steps",
@@ -498,7 +375,6 @@ class GreenhouseControlProfileSerializer(serializers.ModelSerializer):
             "cost_band_violation",
             "cost_water_use",
             "cost_switching",
-            "cost_daily_cap_excess",
             "cost_terminal_band_violation",
             "safety_stale_after_seconds",
             "actuator_timeout_seconds",
@@ -529,7 +405,6 @@ class GreenhouseControlProfileSerializer(serializers.ModelSerializer):
                 "cost_band_violation",
                 "cost_water_use",
                 "cost_switching",
-                "cost_daily_cap_excess",
                 "cost_terminal_band_violation",
             ),
             "safety_stale_after_seconds",
@@ -556,7 +431,6 @@ class AMPCRecommendationSerializer(serializers.ModelSerializer):
             "objective_cost",
             "safety_status",
             "reason",
-            "used_today_pump_seconds",
             "command_created",
             "actuator_status",
             "config_snapshot",
@@ -578,7 +452,6 @@ class LegacyAMPCRecommendationSerializer(serializers.ModelSerializer):
             "id",
             "mode",
             "state_cycle_id",
-            "run_id",
             "pump_seconds",
             "step_seconds",
             "predicted_soil_moisture",
@@ -586,7 +459,6 @@ class LegacyAMPCRecommendationSerializer(serializers.ModelSerializer):
             "cost",
             "safety_status",
             "reason",
-            "used_today_pump_seconds",
             "actuator",
             "state_snapshot",
             "created_at",

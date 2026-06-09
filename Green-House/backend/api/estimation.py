@@ -1,80 +1,82 @@
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import datetime, timedelta
 from functools import lru_cache
 from pathlib import Path
-from datetime import datetime, timedelta
 
 from django.conf import settings
 
 from kalman.filter import AdaptiveKalmanCycle, KalmanConfig, KalmanState
-from kalman.ingestion import (
-    ProcessedRecord,
-    RawRecord,
-    ValidationResult,
-    preprocess_single,
-    validate_live_record,
-)
+from kalman.ingestion import ProcessedRecord, RawRecord, ValidationResult, preprocess_single, validate_live_record
 from kalman.prediction import ARXPredictionAdapter
 
-from .models import DeviceState, EstimationCycle, ExperimentRun, Greenhouse, SensorData
+from .models import DeviceState, EstimationCycle, Greenhouse, SensorData
+
+HISTORY_LIMIT = 12
+SENSOR_FIELDS = ('soil_moisture', 'temperature', 'humidity', 'light')
+DEVICE_FLAGS = (('drip', 'pump', 'pump_on'), ('mist', 'mist', 'mist_on'), ('fan', 'fan', 'fan_on'))
 
 
-def _float_or_none(value) -> float | None:
-    if value is None:
-        return None
-    return float(value)
+def _number(value) -> float | None:
+    return None if value is None else float(value)
 
 
-def _latest_device_flag(device_code: str) -> float:
-    """Lấy trạng thái bật/tắt mới nhất từ DeviceState theo device_code."""
+def _device_flag(device_code: str) -> float:
     state = DeviceState.objects.filter(device_code=device_code).first()
-    return 1.0 if state and state.is_on else 0.0
+    return float(bool(state and state.is_on))
 
 
-def raw_record_from_reading(reading: SensorData, *, row_index: int) -> RawRecord:
-    payload = reading.payload or {}
+def _raw_from_reading(reading: SensorData) -> RawRecord:
+    payload = reading.payload if isinstance(reading.payload, dict) else {}
+
+    def flag(field: str, device: str) -> float:
+        if field in payload:
+            return _number(payload[field])
+        if device in payload:
+            return _number(payload[device])
+        return _device_flag(device)
+
     return RawRecord(
         timestamp=reading.recorded_at,
-        soil_moisture=_float_or_none(reading.soil_moisture),
-        temperature=_float_or_none(reading.temperature),
-        humidity=_float_or_none(reading.humidity),
-        light=_float_or_none(reading.light),
-        drip=_float_or_none(payload.get('drip')) if 'drip' in payload else _latest_device_flag('pump'),
-        fan=_float_or_none(payload.get('fan')) if 'fan' in payload else _latest_device_flag('fan'),
-        mist=_float_or_none(payload.get('mist')) if 'mist' in payload else _latest_device_flag('mist'),
-        row_index=row_index,
+        soil_moisture=_number(reading.soil_moisture),
+        temperature=_number(reading.temperature),
+        humidity=_number(reading.humidity),
+        light=_number(reading.light),
+        drip=flag('drip', 'pump'),
+        mist=flag('mist', 'mist'),
+        fan=flag('fan', 'fan'),
+        row_index=0,
     )
 
 
 @lru_cache(maxsize=4)
-def _load_arx_adapter(path: str) -> ARXPredictionAdapter:
+def _load_arx(path: str) -> ARXPredictionAdapter:
     return ARXPredictionAdapter.load_artifact(Path(path))
 
 
-def _prediction_adapter() -> ARXPredictionAdapter | None:
+def _arx_adapter() -> ARXPredictionAdapter | None:
     path = str(getattr(settings, 'ARX_MODEL_PATH', ''))
     if not path:
         return None
     try:
-        return _load_arx_adapter(path)
+        return _load_arx(path)
     except Exception:
         return None
 
 
-def _live_kalman_config(initial_soil_moisture: float | None) -> KalmanConfig:
+def _kalman_config(initial_soil: float | None) -> KalmanConfig:
     return KalmanConfig(
-        x0=_float_or_none(initial_soil_moisture) or 0.0,
+        x0=initial_soil or 0.0,
         Q=float(getattr(settings, 'KALMAN_LIVE_Q', 12.0)),
         R0=float(getattr(settings, 'KALMAN_LIVE_R0', 1.0)),
         R_min=float(getattr(settings, 'KALMAN_LIVE_R_MIN', 0.25)),
         R_max=float(getattr(settings, 'KALMAN_LIVE_R_MAX', 4.0)),
-        forgetting_factor_b=float(
-            getattr(settings, 'KALMAN_LIVE_FORGETTING_FACTOR_B', 0.95)
-        ),
+        forgetting_factor_b=float(getattr(settings, 'KALMAN_LIVE_FORGETTING_FACTOR_B', 0.95)),
     )
 
 
-def _processed_from_cycle(cycle: EstimationCycle) -> ProcessedRecord:
+def _processed_cycle(cycle: EstimationCycle) -> ProcessedRecord:
     raw = RawRecord(
         timestamp=cycle.sample_ts,
         soil_moisture=cycle.raw_soil_moisture,
@@ -82,8 +84,8 @@ def _processed_from_cycle(cycle: EstimationCycle) -> ProcessedRecord:
         humidity=cycle.raw_humidity,
         light=cycle.raw_light,
         drip=cycle.raw_drip,
-        fan=cycle.raw_fan,
         mist=cycle.raw_mist,
+        fan=cycle.raw_fan,
         row_index=cycle.cycle_index,
     )
     validation = ValidationResult(
@@ -94,86 +96,68 @@ def _processed_from_cycle(cycle: EstimationCycle) -> ProcessedRecord:
     return preprocess_single(raw, validation)
 
 
-def _recent_processed_history(
-    limit: int,
-    *,
-    run: ExperimentRun | None = None,
-    greenhouse: Greenhouse | None = None,
-) -> list[ProcessedRecord]:
-    queryset = EstimationCycle.objects
-    if run is not None:
-        queryset = queryset.filter(run=run)
-    elif greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
-    cycles = (
-        queryset
-        .filter(preprocess_status=EstimationCycle.PreprocessStatus.VALID)
-        .exclude(raw_soil_moisture__isnull=True)
-        .exclude(raw_temperature__isnull=True)
-        .exclude(raw_humidity__isnull=True)
-        .exclude(raw_light__isnull=True)
-        .order_by('-sample_ts', '-id')[:limit]
-    )
-    return [_processed_from_cycle(cycle) for cycle in reversed(list(cycles))]
+def _cycle_query(greenhouse: Greenhouse, source_type: str):
+    return EstimationCycle.objects.filter(greenhouse=greenhouse, source_type=source_type)
 
 
-def _restore_estimator_state(
-    estimator: AdaptiveKalmanCycle,
-    *,
-    run: ExperimentRun | None = None,
-    greenhouse: Greenhouse | None = None,
-) -> int:
-    queryset = EstimationCycle.objects
-    if run is not None:
-        queryset = queryset.filter(run=run)
-    elif greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
-    latest = queryset.order_by('-cycle_index', '-id').first()
-    if latest is None:
-        return 0
+def _build_estimator(
+    initial_soil: float | None,
+    greenhouse: Greenhouse,
+    source_type: str,
+) -> tuple[AdaptiveKalmanCycle, int]:
+    adapter = _arx_adapter() if source_type == 'live' else None
+    estimator = AdaptiveKalmanCycle(_kalman_config(initial_soil), adapter=adapter)
+    cycles = _cycle_query(greenhouse, source_type)
+    latest = cycles.order_by('-cycle_index', '-id').first()
+    cycle_index = latest.cycle_index + 1 if latest else 0
 
-    if (
-        latest.kf_x_posterior is not None
-        and latest.kf_P_posterior is not None
-        and latest.kf_R is not None
-    ):
+    if latest and all(value is not None for value in (latest.kf_x_posterior, latest.kf_P_posterior, latest.kf_R)):
         config = estimator.config
         estimator._state = KalmanState(  # noqa: SLF001
             x_post=float(latest.kf_x_posterior),
             P_post=float(latest.kf_P_posterior),
             R=max(config.R_min, min(config.R_max, float(latest.kf_R))),
-            step=latest.cycle_index + 1,
+            step=cycle_index,
         )
-    return latest.cycle_index + 1
+
+    history_limit = max(getattr(adapter, 'min_history_len', 0), HISTORY_LIMIT)
+    history = (
+        cycles
+        .filter(preprocess_status=EstimationCycle.PreprocessStatus.VALID)
+        .exclude(raw_soil_moisture__isnull=True)
+        .exclude(raw_temperature__isnull=True)
+        .exclude(raw_humidity__isnull=True)
+        .exclude(raw_light__isnull=True)
+        .order_by('-sample_ts', '-id')[:history_limit]
+    )
+    estimator._history = [_processed_cycle(cycle) for cycle in reversed(list(history))]  # noqa: SLF001
+    return estimator, cycle_index
 
 
-def _create_estimation_cycle(
-    *,
+def _create_cycle(
     raw: RawRecord,
-    validation: ValidationResult,
-    run: ExperimentRun | None,
-    greenhouse: Greenhouse | None,
-    ingest_dedupe_key: str,
+    greenhouse: Greenhouse,
+    dedupe_key: str,
     source_type: str,
 ) -> EstimationCycle:
-    adapter = _prediction_adapter()
-    estimator = AdaptiveKalmanCycle(_live_kalman_config(raw.soil_moisture), adapter=adapter)
-    cycle_index = _restore_estimator_state(estimator, run=run, greenhouse=greenhouse)
-    min_history = getattr(adapter, 'min_history_len', 0) if adapter is not None else 0
-    estimator._history = _recent_processed_history(  # noqa: SLF001
-        max(min_history, 12),
-        run=run,
-        greenhouse=greenhouse,
-    )
-
-    processed = preprocess_single(raw, validation)
-    result = estimator.step(processed, cycle_index=cycle_index)
-    has_soil_measurement = raw.soil_moisture is not None
-
+    estimator, cycle_index = _build_estimator(raw.soil_moisture, greenhouse, source_type)
+    raw = replace(raw, row_index=cycle_index)
+    validation = validate_live_record(raw)
+    result = estimator.step(preprocess_single(raw, validation), cycle_index=cycle_index)
+    has_measurement = raw.soil_moisture is not None
+    kalman = {
+        'arx_predicted': result.arx_predicted,
+        'kf_x_prior': result.x_prior,
+        'kf_P_prior': result.P_prior,
+        'kf_innovation': result.innovation,
+        'kf_R': result.R,
+        'kf_K': result.K,
+        'kf_x_posterior': result.x_posterior,
+        'kf_P_posterior': result.P_posterior,
+    } if has_measurement else {}
     return EstimationCycle.objects.create(
         sample_ts=result.timestamp,
         cycle_index=result.cycle_index,
-        run=run,
         greenhouse=greenhouse,
         slice_type='online',
         source_type=source_type,
@@ -189,50 +173,20 @@ def _create_estimation_cycle(
         raw_drip=raw.drip,
         raw_mist=raw.mist,
         raw_fan=raw.fan,
-        arx_predicted=result.arx_predicted if has_soil_measurement else None,
-        kf_x_prior=result.x_prior if has_soil_measurement else None,
-        kf_P_prior=result.P_prior if has_soil_measurement else None,
-        kf_innovation=result.innovation if has_soil_measurement else None,
-        kf_R=result.R if has_soil_measurement else None,
-        kf_K=result.K if has_soil_measurement else None,
-        kf_x_posterior=result.x_posterior if has_soil_measurement else None,
-        kf_P_posterior=result.P_posterior if has_soil_measurement else None,
         latency_ms=result.latency_ms,
         error_message=result.error_message or '',
-        ingest_dedupe_key=ingest_dedupe_key,
+        ingest_dedupe_key=dedupe_key,
+        **kalman,
     )
 
 
-def ensure_estimation_for_reading(
-    reading: SensorData,
-    *,
-    run: ExperimentRun | None = None,
-) -> EstimationCycle:
-    greenhouse_key = reading.greenhouse_id or 'global'
-    run_key = run.id if run is not None else f'sensor:{greenhouse_key}'
-    ingest_dedupe_key = f"live|{run_key}|{reading.recorded_at.astimezone().isoformat()}"
-    existing_query = EstimationCycle.objects.filter(ingest_dedupe_key=ingest_dedupe_key)
-    if run is not None:
-        existing_query = existing_query.filter(run=run)
-    existing = existing_query.first()
-    if existing is not None:
-        return existing
-
-    cycle_index = _restore_estimator_state(
-        AdaptiveKalmanCycle(_live_kalman_config(_float_or_none(reading.soil_moisture))),
-        run=run,
-        greenhouse=reading.greenhouse,
-    )
-    raw = raw_record_from_reading(reading, row_index=cycle_index)
-    validation = validate_live_record(raw)
-    return _create_estimation_cycle(
-        raw=raw,
-        validation=validation,
-        run=run,
-        greenhouse=reading.greenhouse,
-        ingest_dedupe_key=ingest_dedupe_key,
-        source_type='live',
-    )
+def ensure_estimation_for_reading(reading: SensorData) -> EstimationCycle:
+    greenhouse = reading.greenhouse
+    if greenhouse is None:
+        raise ValueError('sensor reading must belong to a greenhouse')
+    dedupe_key = f'live|sensor:{greenhouse.pk}|{reading.recorded_at.astimezone().isoformat()}'
+    existing = _cycle_query(greenhouse, 'live').filter(ingest_dedupe_key=dedupe_key).first()
+    return existing or _create_cycle(_raw_from_reading(reading), greenhouse, dedupe_key, 'live')
 
 
 def ensure_recent_window_estimations(
@@ -242,25 +196,19 @@ def ensure_recent_window_estimations(
     horizon_steps: int,
     end_time: datetime,
 ) -> EstimationCycle | None:
-    """Create control-step estimation cycles from raw SensorData windows."""
-    if step_seconds <= 0:
-        raise ValueError('step_seconds must be > 0')
-    if horizon_steps < 1:
-        raise ValueError('horizon_steps must be >= 1')
+    if step_seconds <= 0 or horizon_steps < 1:
+        raise ValueError('step_seconds and horizon_steps must be positive')
 
-    aligned_end = _aligned_window_end(end_time, step_seconds)
-    latest: EstimationCycle | None = None
+    aligned_end = _aligned_end(end_time, step_seconds)
+    latest = None
     for index in range(horizon_steps, 0, -1):
         window_end = aligned_end - timedelta(seconds=step_seconds * (index - 1))
-        window_start = window_end - timedelta(seconds=step_seconds)
-        cycle = ensure_estimation_for_sensor_window(
+        latest = ensure_estimation_for_sensor_window(
             greenhouse=greenhouse,
-            window_start=window_start,
+            window_start=window_end - timedelta(seconds=step_seconds),
             window_end=window_end,
             step_seconds=step_seconds,
-        )
-        if cycle is not None:
-            latest = cycle
+        ) or latest
     return latest
 
 
@@ -274,79 +222,45 @@ def ensure_estimation_for_sensor_window(
     if window_end <= window_start:
         raise ValueError('window_end must be after window_start')
     dedupe_key = (
-        f"window|sensor:{greenhouse.pk}|{step_seconds}|"
-        f"{window_start.astimezone().isoformat()}|{window_end.astimezone().isoformat()}"
+        f'window|sensor:{greenhouse.pk}|{step_seconds}|'
+        f'{window_start.astimezone().isoformat()}|{window_end.astimezone().isoformat()}'
     )
-    existing = EstimationCycle.objects.filter(
-        greenhouse=greenhouse,
-        ingest_dedupe_key=dedupe_key,
-    ).first()
+    existing = _cycle_query(greenhouse, 'live_window').filter(ingest_dedupe_key=dedupe_key).first()
     if existing is not None:
         return existing
 
     readings = list(
         SensorData.objects
-        .filter(
-            greenhouse=greenhouse,
-            recorded_at__gt=window_start,
-            recorded_at__lte=window_end,
-        )
+        .filter(greenhouse=greenhouse, recorded_at__gt=window_start, recorded_at__lte=window_end)
         .order_by('recorded_at', 'id')
     )
     if not readings:
         return None
 
-    cycle_index = _restore_estimator_state(
-        AdaptiveKalmanCycle(_live_kalman_config(_average_field(readings, 'soil_moisture'))),
-        greenhouse=greenhouse,
-    )
-    raw = RawRecord(
-        timestamp=window_end,
-        soil_moisture=_average_field(readings, 'soil_moisture'),
-        temperature=_average_field(readings, 'temperature'),
-        humidity=_average_field(readings, 'humidity'),
-        light=_average_field(readings, 'light'),
-        drip=_average_flag(readings, 'pump', 'pump_on'),
-        mist=_average_flag(readings, 'mist', 'mist_on'),
-        fan=_average_flag(readings, 'fan', 'fan_on'),
-        row_index=cycle_index,
-    )
-    validation = validate_live_record(raw)
-    return _create_estimation_cycle(
-        raw=raw,
-        validation=validation,
-        run=None,
-        greenhouse=greenhouse,
-        ingest_dedupe_key=dedupe_key,
-        source_type='live_window',
-    )
+    values = {field: _average(readings, field) for field in SENSOR_FIELDS}
+    flags = {name: _average_flag(readings, direct, state) for name, direct, state in DEVICE_FLAGS}
+    raw = RawRecord(timestamp=window_end, row_index=0, **values, **flags)
+    return _create_cycle(raw, greenhouse, dedupe_key, 'live_window')
 
 
-def _aligned_window_end(value: datetime, step_seconds: int) -> datetime:
+def _aligned_end(value: datetime, step_seconds: int) -> datetime:
     timestamp = value.timestamp()
-    aligned = timestamp - (timestamp % step_seconds)
-    return datetime.fromtimestamp(aligned, tz=value.tzinfo)
+    return datetime.fromtimestamp(timestamp - timestamp % step_seconds, tz=value.tzinfo)
 
 
-def _average_field(readings: list[SensorData], field_name: str) -> float | None:
-    values = [
-        float(value)
-        for reading in readings
-        if (value := getattr(reading, field_name)) is not None
-    ]
+def _average(readings: list[SensorData], field: str) -> float | None:
+    values = [float(value) for reading in readings if (value := getattr(reading, field)) is not None]
     return sum(values) / len(values) if values else None
 
 
 def _average_flag(readings: list[SensorData], direct_key: str, state_key: str) -> float:
-    values: list[float] = []
+    values = []
     for reading in readings:
         payload = reading.payload if isinstance(reading.payload, dict) else {}
         if direct_key in payload:
-            values.append(1.0 if _truthy(payload[direct_key]) else 0.0)
-            continue
-        states = payload.get('device_states')
-        if isinstance(states, dict) and state_key in states:
-            values.append(1.0 if _truthy(states[state_key]) else 0.0)
+            values.append(float(_truthy(payload[direct_key])))
+        elif isinstance(payload.get('device_states'), dict) and state_key in payload['device_states']:
+            values.append(float(_truthy(payload['device_states'][state_key])))
     return sum(values) / len(values) if values else 0.0
 
 
@@ -360,16 +274,8 @@ def _truthy(value) -> bool:
     return str(value).strip().lower() in {'1', 'true', 'on', 'yes'}
 
 
-def latest_estimation(
-    *,
-    greenhouse: Greenhouse | None = None,
-) -> EstimationCycle | None:
-    queryset = EstimationCycle.objects
+def latest_estimation(*, greenhouse: Greenhouse | None = None) -> EstimationCycle | None:
+    queryset = EstimationCycle.objects.exclude(kf_x_posterior__isnull=True)
     if greenhouse is not None:
         queryset = queryset.filter(greenhouse=greenhouse)
-    return (
-        queryset
-        .exclude(kf_x_posterior__isnull=True)
-        .order_by('-sample_ts', '-id')
-        .first()
-    )
+    return queryset.order_by('-sample_ts', '-id').first()

@@ -50,12 +50,6 @@ def test_controller_config_defaults_match_v2_contract() -> None:
         ),
         (
             lambda: ControllerConfig(
-                safety=SafetyConfig(soft_daily_pump_cap_seconds=0.0)
-            ),
-            "soft daily cap",
-        ),
-        (
-            lambda: ControllerConfig(
                 actuator=ActuatorConfig(enabled="true")
             ),
             "actuator.enabled",
@@ -92,7 +86,6 @@ def test_load_controller_config_reads_partial_json(tmp_path: Path) -> None:
                 "horizon_steps": 3,
                 "target_band": {"low": 50.0, "high": 60.0},
                 "pump": {"max_seconds": 120.0},
-                "safety": {"soft_daily_pump_cap_seconds": 600.0},
                 "actuator": {
                     "enabled": True,
                     "url": "http://127.0.0.1:8000/actuator",
@@ -110,7 +103,6 @@ def test_load_controller_config_reads_partial_json(tmp_path: Path) -> None:
     assert config.target_band.low == 50.0
     assert config.target_band.high == 60.0
     assert config.pump.max_seconds == 120.0
-    assert config.safety.soft_daily_pump_cap_seconds == 600.0
     assert config.actuator.enabled is True
     assert config.actuator.url == "http://127.0.0.1:8000/actuator"
     assert config.actuator.bearer_token_env == "MPC_ACTUATOR_TOKEN"

@@ -25,7 +25,6 @@ class TrajectoryCost:
     terminal: float
     water: float
     switching: float
-    daily_cap: float
     overwater: float = 0.0
 
 
@@ -74,24 +73,16 @@ def score_fao56_trajectory(
     initial_sensor_percent: float,
     pump_seconds: Sequence[float],
     previous_pump_seconds: float,
-    used_today_pump_seconds: float,
     config: ControllerConfig,
 ) -> Fao56Trajectory:
     if not pump_seconds:
         raise ValueError("trajectory must not be empty")
     if not isfinite(previous_pump_seconds):
         raise ValueError("previous_pump_seconds must be finite")
-    if not isfinite(used_today_pump_seconds):
-        raise ValueError("used_today_pump_seconds must be finite")
-    if used_today_pump_seconds < 0.0:
-        raise ValueError("used_today_pump_seconds must be >= 0")
 
     max_pump_seconds = config.pump.max_seconds
-    daily_cap_seconds = config.safety.soft_daily_pump_cap_seconds
     if max_pump_seconds <= 0.0:
         raise ValueError("pump.max_seconds must be > 0")
-    if daily_cap_seconds <= 0.0:
-        raise ValueError("soft daily cap must be > 0")
 
     sensor_calibration_from_target_band(
         target_low=config.target_band.low,
@@ -113,7 +104,6 @@ def score_fao56_trajectory(
     overwater_total = 0.0
     water_total = 0.0
     switching_total = 0.0
-    planned_pump = 0.0
     previous_pump = previous_pump_seconds
     predicted_soil: list[float] = []
     predicted_dr: list[float] = []
@@ -158,7 +148,6 @@ def score_fao56_trajectory(
         water_total += config.cost.water_use * pump_ratio * pump_ratio
         switching_total += config.cost.switching * switch_ratio * switch_ratio
 
-        planned_pump += pump
         previous_pump = pump
         current_dr = depletion_next
         predicted_soil.append(forecast_sensor)
@@ -168,15 +157,6 @@ def score_fao56_trajectory(
         irrigation_values.append(irrigation)
         raw_next_values.append(depletion_raw_next)
 
-    daily_excess_ratio = max(
-        0.0,
-        used_today_pump_seconds + planned_pump - daily_cap_seconds,
-    ) / daily_cap_seconds
-    daily_cap_total = (
-        config.cost.daily_cap_excess
-        * daily_excess_ratio
-        * daily_excess_ratio
-    )
     terminal_error = max(0.0, predicted_dr[-1] - raw)
     terminal_total = (
         config.cost.terminal_band_violation
@@ -188,7 +168,6 @@ def score_fao56_trajectory(
         + overwater_total
         + water_total
         + switching_total
-        + daily_cap_total
         + terminal_total
     )
     return Fao56Trajectory(
@@ -199,7 +178,6 @@ def score_fao56_trajectory(
             terminal=terminal_total,
             water=water_total,
             switching=switching_total,
-            daily_cap=daily_cap_total,
             overwater=overwater_total,
         ),
         initial_depletion_mm=fao_state.depletion_mm,

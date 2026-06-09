@@ -13,7 +13,6 @@ from mpc.core.types import SafetyStatus
 class ActuatorCommand:
     command_id: str
     timestamp: datetime
-    run_id: int | None
     pump_seconds: float
     step_seconds: int
     mode: str
@@ -25,10 +24,6 @@ class ActuatorCommand:
             raise ValueError("command_id must not be empty")
         if not isinstance(self.timestamp, datetime):
             raise TypeError("timestamp must be a datetime")
-        if self.run_id is not None and (
-            isinstance(self.run_id, bool) or not isinstance(self.run_id, int)
-        ):
-            raise ValueError("run_id must be an int or null")
         if not isfinite(self.pump_seconds) or self.pump_seconds < 0.0:
             raise ValueError("pump_seconds must be finite and >= 0")
         if self.step_seconds <= 0:
@@ -42,7 +37,6 @@ class ActuatorCommand:
         return {
             "command_id": self.command_id,
             "timestamp": self.timestamp.isoformat(),
-            "run_id": self.run_id,
             "pump_seconds": self.pump_seconds,
             "step_seconds": self.step_seconds,
             "mode": self.mode,

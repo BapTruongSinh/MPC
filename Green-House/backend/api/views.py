@@ -24,8 +24,6 @@ from .models import (
     DeviceCommand,
     DeviceState,
     EstimationCycle,
-    EvaluationSummary,
-    ExperimentRun,
     SensorData,
 )
 from .serializers import (
@@ -39,13 +37,10 @@ from .serializers import (
     DeviceCommandSerializer,
     DeviceStateSerializer,
     EstimationCycleSerializer,
-    CycleSerializer,
-    EvaluationSummarySerializer,
     GreenhouseControlProfileSerializer,
     IngestReadingSerializer,
     LegacyAMPCRecommendationSerializer,
     LoginSerializer,
-    RunListSerializer,
     SensorDataSerializer,
 )
 from .ampc import (
@@ -102,11 +97,9 @@ def _legacy_auto_settings_payload(profile):
         'horizon_steps': profile.horizon_steps,
         'pump_min_seconds': profile.pump_min_seconds,
         'pump_max_seconds': profile.pump_max_seconds,
-        'soft_daily_pump_cap_seconds': profile.soft_daily_pump_cap_seconds,
         'weight_band': profile.cost_band_violation,
         'weight_water': profile.cost_water_use,
         'weight_switch': profile.cost_switching,
-        'weight_daily': profile.cost_daily_cap_excess,
         'weight_terminal': profile.cost_terminal_band_violation,
         'stale_after_seconds': profile.safety_stale_after_seconds,
         'actuator_enabled': profile.actuator_enabled,
@@ -125,7 +118,6 @@ def _legacy_auto_settings_patch(data) -> dict:
         'weight_band': 'cost_band_violation',
         'weight_water': 'cost_water_use',
         'weight_switch': 'cost_switching',
-        'weight_daily': 'cost_daily_cap_excess',
         'weight_terminal': 'cost_terminal_band_violation',
         'stale_after_seconds': 'safety_stale_after_seconds',
     }
@@ -134,7 +126,7 @@ def _legacy_auto_settings_patch(data) -> dict:
         'root_depth_m', 'depletion_fraction_p', 'pump_efficiency', 'pump_flow_lps',
         'irrigation_area_m2', 'target_low', 'target_high',
         'step_seconds', 'horizon_steps', 'pump_min_seconds',
-        'soft_daily_pump_cap_seconds', 'actuator_enabled',
+        'actuator_enabled',
     }
     patch = {}
     for key, value in data.items():
@@ -495,37 +487,6 @@ class AMPCSchedulerStopView(APIView):
     def post(self, request):
         state = stop_scheduler()
         return Response(AMPCSchedulerStateSerializer(state).data)
-
-
-class RunListView(generics.ListAPIView):
-    serializer_class = RunListSerializer
-
-    def get_queryset(self):
-        return (
-            ExperimentRun.objects
-            .order_by('-created_at', '-id')
-        )
-
-
-class RunSeriesView(APIView):
-    def get(self, request, run_id: int):
-        run = generics.get_object_or_404(ExperimentRun, pk=run_id)
-        limit = _query_int(request, 'limit', 500, min_value=1, max_value=5000)
-        cycles = (
-            EstimationCycle.objects
-            .filter(run=run)
-            .order_by('-sample_ts', '-id')[:limit]
-        )
-        return Response(CycleSerializer(reversed(list(cycles)), many=True).data)
-
-
-class RunMetricsView(APIView):
-    def get(self, request, run_id: int):
-        run = generics.get_object_or_404(ExperimentRun, pk=run_id)
-        summary = EvaluationSummary.objects.filter(run=run).first()
-        if summary is None:
-            return Response({'detail': 'metrics_not_found'}, status=status.HTTP_404_NOT_FOUND)
-        return Response(EvaluationSummarySerializer(summary).data)
 
 
 class ControlProfileView(APIView):

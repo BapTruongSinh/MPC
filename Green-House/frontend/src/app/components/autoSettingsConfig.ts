@@ -14,11 +14,9 @@ export type AutoSettingsNumericField = keyof Pick<
   | "target_high"
   | "step_seconds"
   | "horizon_steps"
-  | "soft_daily_pump_cap_seconds"
   | "weight_band"
   | "weight_water"
   | "weight_switch"
-  | "weight_daily"
   | "weight_terminal"
 >;
 
@@ -84,11 +82,9 @@ export const AUTO_SETTINGS_NUMERIC_GROUPS: NumericFieldGroup[] = [
       { field: "target_high", label: "Ngưỡng sensor cao", helper: "Độ ẩm trong đất ở mức cao, đảm bảo cây không bị ngập nước", suffix: "%", step: "1", min: 0, max: 100 },
       { field: "step_seconds", label: "Thời gian mỗi bước", helper: "Độ dài một bước dự báo", suffix: "giây", step: "5", min: 5 },
       { field: "horizon_steps", label: "Số bước dự báo", helper: "Số bước tương lai để dự đoán", suffix: "bước", step: "1", min: 1 },
-      { field: "soft_daily_pump_cap_seconds", label: "Giới hạn bơm/ngày", helper: "Giới hạn tổng thời gian bơm trong một ngày.", suffix: "giây", step: "1", min: 0 },
       { field: "weight_band", label: "Trọng số stress/overwater", helper: "Mức phạt khi đất quá khô hoặc quá ẩm.", suffix: "", step: "0.1", min: 0 },
       { field: "weight_water", label: "Trọng số tiết kiệm nước", helper: "Mức phạt cho việc dùng nhiều nước.", suffix: "", step: "0.1", min: 0 },
       { field: "weight_switch", label: "Trọng số đổi lệnh", helper: "Mức phạt khi lệnh bơm thay đổi mạnh so với lần trước.", suffix: "", step: "0.1", min: 0 },
-      { field: "weight_daily", label: "Trọng số giới hạn ngày", helper: "Mức phạt khi kế hoạch vượt giới hạn bơm/ngày.", suffix: "", step: "0.1", min: 0 },
       { field: "weight_terminal", label: "Trọng số cuối chu kỳ", helper: "Mức phạt trạng thái đất ở cuối dự báo.", suffix: "", step: "0.1", min: 0 },
     ],
   },
@@ -108,11 +104,9 @@ export const AUTO_SETTINGS_PAYLOAD_FIELDS: AutoSettingsPayloadField[] = [
   "target_high",
   "step_seconds",
   "horizon_steps",
-  "soft_daily_pump_cap_seconds",
   "weight_band",
   "weight_water",
   "weight_switch",
-  "weight_daily",
   "weight_terminal",
   "actuator_enabled",
 ];
@@ -150,11 +144,9 @@ const FINITE_NUMERIC_LABELS: Array<[AutoSettingsNumericField, string]> = [
   ["target_high", "Ngưỡng sensor cao"],
   ["step_seconds", "Thời gian mỗi bước"],
   ["horizon_steps", "Số bước dự báo"],
-  ["soft_daily_pump_cap_seconds", "Giới hạn bơm/ngày"],
   ["weight_band", "Trọng số stress/overwater"],
   ["weight_water", "Trọng số tiết kiệm nước"],
   ["weight_switch", "Trọng số đổi lệnh"],
-  ["weight_daily", "Trọng số giới hạn ngày"],
   ["weight_terminal", "Trọng số cuối chu kỳ"],
 ];
 
@@ -163,7 +155,6 @@ const NON_NEGATIVE_NUMERIC_LABELS: Array<[AutoSettingsNumericField, string]> = [
   ["weight_band", "Trọng số stress/overwater"],
   ["weight_water", "Trọng số tiết kiệm nước"],
   ["weight_switch", "Trọng số đổi lệnh"],
-  ["weight_daily", "Trọng số giới hạn ngày"],
   ["weight_terminal", "Trọng số cuối chu kỳ"],
 ];
 
@@ -216,7 +207,6 @@ export function validateAutoSettings(profile: ControlProfile): string {
   if (!Number.isInteger(profile.horizon_steps) || profile.horizon_steps < 1) {
     return "Số bước dự báo phải là số nguyên >= 1.";
   }
-  if (profile.soft_daily_pump_cap_seconds <= 0) return "Giới hạn bơm/ngày phải lớn hơn 0.";
   return "";
 }
 
