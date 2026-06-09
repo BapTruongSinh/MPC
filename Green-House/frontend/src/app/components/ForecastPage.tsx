@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle, Droplets, Gauge, RefreshCw, Sprout, Square, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle, Droplets, Gauge, Sprout, Square, Zap } from "lucide-react";
 import {
   getForecast,
-  startAmpcScheduler,
-  stopAmpcScheduler,
+  startMpcScheduler,
+  stopMpcScheduler,
 } from "../api/endpoints";
-import type { AMPCRecommendation, AMPCSchedulerState, Fao56Audit, ForecastResponse } from "../api/endpoints";
+import type { Fao56Audit, ForecastResponse, MPCRecommendation, MPCSchedulerState } from "../api/endpoints";
 import { Button } from "./ui/button";
 import {
   CartesianGrid,
@@ -24,6 +24,10 @@ export type ChartRow = {
   soilForecast: number | null;
   temperature: number | null;
   humidity: number | null;
+};
+
+type ForecastHistoryRow = ForecastResponse["history"][number] & {
+  sample_ts?: string;
 };
 
 type FaoStressTone = "wet" | "safe" | "stress" | "unknown";
@@ -85,14 +89,8 @@ export function describeReason(reason?: string) {
   if (!reason) return "không rõ nguyên nhân";
 
   const normalized = reason.toLowerCase();
-  if (normalized.includes("history_too_short")) {
-    return "chưa đủ dữ liệu lịch sử cho ARX/AMPC";
-  }
   if (normalized.includes("missing_estimation")) {
     return "chưa có kết quả Kalman hợp lệ";
-  }
-  if (normalized.includes("artifact not found")) {
-    return "không tìm thấy artifact mô hình ARX";
   }
   if (normalized.includes("stale")) {
     return "mẫu cảm biến đã quá cũ";
@@ -106,31 +104,36 @@ export function describeReason(reason?: string) {
   return reason;
 }
 
-export function buildAmpcError(
-  recommendation: AMPCRecommendation | null,
-  scheduler: AMPCSchedulerState | null
+export function buildMpcError(
+  recommendation: MPCRecommendation | null,
+  scheduler: MPCSchedulerState | null
 ) {
-  if (recommendation && recommendation.safety_status !== "safe") {
+  if (recommendation) {
+    if (recommendation.safety_status === "safe") return "";
     const status = describeSafetyStatus(recommendation.safety_status);
     const reason = describeReason(recommendation.reason);
-    return `Lỗi AMPC: ${status} - ${reason}`;
+    return `Lỗi MPC: ${status} - ${reason}`;
   }
-  if (scheduler?.last_error) {
+  if (scheduler?.last_error && scheduler.last_status !== "safe") {
     const status = describeSafetyStatus(scheduler.last_status);
     const reason = describeReason(scheduler.last_error);
-    return `Lỗi AMPC: ${status} - ${reason}`;
+    return `Lỗi MPC: ${status} - ${reason}`;
   }
   return "";
 }
 
 export function buildForecastChartData(data: ForecastResponse | null): ChartRow[] {
-  const rows = (data?.history ?? []).map((item) => ({
-    label: timeLabel(item.recorded_at),
-    soilActual: item.soil_moisture,
-    soilForecast: null,
-    temperature: item.temperature,
-    humidity: item.humidity,
-  }));
+  const rows: ChartRow[] = (data?.history ?? []).map((item) => {
+    const historyItem = item as ForecastHistoryRow;
+    const timestamp = historyItem.recorded_at ?? historyItem.sample_ts;
+    return {
+      label: timestamp ? timeLabel(timestamp) : "--:--",
+      soilActual: item.soil_moisture,
+      soilForecast: null,
+      temperature: item.temperature,
+      humidity: item.humidity,
+    };
+  });
 
   const latest = data?.latest;
   const predictions = data?.recommendation?.predicted_soil_moisture ?? [];
@@ -164,7 +167,7 @@ export function buildForecastChartData(data: ForecastResponse | null): ChartRow[
   return rows;
 }
 
-export function getFaoAudit(recommendation: AMPCRecommendation | null): Fao56Audit | null {
+export function getFaoAudit(recommendation: MPCRecommendation | null): Fao56Audit | null {
   return recommendation?.state_snapshot?.fao56 ?? null;
 }
 
@@ -214,7 +217,7 @@ function stressToneClass(tone: FaoStressTone) {
   return classes[tone];
 }
 
-export function FaoAuditPanel({ recommendation }: { recommendation: AMPCRecommendation | null }) {
+export function FaoAuditPanel({ recommendation }: { recommendation: MPCRecommendation | null }) {
   const fao = getFaoAudit(recommendation);
   const stress = describeFaoStressStatus(fao);
   const metrics = [
@@ -224,7 +227,6 @@ export function FaoAuditPanel({ recommendation }: { recommendation: AMPCRecommen
     { label: "Ks", value: fmtMetric(fao?.ks, 3) },
     { label: "ET0_step", value: fmtMetric(fao?.et0_step, 3, " mm") },
     { label: "ETc_adj", value: fmtMetric(fao?.etc_adj, 3, " mm") },
-    { label: "irrigation_depth_mm", value: fmtMetric(fao?.irrigation_depth_mm, 3, " mm") },
   ];
 
   return (
@@ -278,22 +280,18 @@ export function FaoAuditPanel({ recommendation }: { recommendation: AMPCRecommen
 
 export function ForecastPage() {
   const [data, setData] = useState<ForecastResponse | null>(null);
-  const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
-  const [ampcRunning, setAmpcRunning] = useState(false);
+  const [mpcRunning, setMpcRunning] = useState(false);
   const [error, setError] = useState("");
 
   const load = async () => {
-    setLoading(true);
     setError("");
     try {
       const response = await getForecast();
       setData(response.data);
-      setAmpcRunning(response.data.scheduler?.is_enabled ?? false);
+      setMpcRunning(response.data.scheduler?.is_enabled ?? false);
     } catch {
       setError("Không tải được dữ liệu dự báo.");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -302,38 +300,38 @@ export function ForecastPage() {
   }, []);
 
   useEffect(() => {
-    if (!ampcRunning) return undefined;
+    if (!mpcRunning) return undefined;
 
     const timer = window.setInterval(() => {
       load();
     }, 10000);
 
     return () => window.clearInterval(timer);
-  }, [ampcRunning]);
+  }, [mpcRunning]);
 
-  const stopAmpc = async () => {
+  const stopMpc = async () => {
     setRunning(true);
     setError("");
     try {
-      const response = await stopAmpcScheduler();
-      setAmpcRunning(response.data.is_enabled);
+      const response = await stopMpcScheduler();
+      setMpcRunning(response.data.is_enabled);
       await load();
     } catch {
-      setError("Lỗi AMPC: không gọi được backend.");
+      setError("Lỗi MPC: không gọi được backend.");
     } finally {
       setRunning(false);
     }
   };
 
-  const startAmpc = async () => {
+  const startMpc = async () => {
     setRunning(true);
     setError("");
     try {
-      const response = await startAmpcScheduler();
-      setAmpcRunning(response.data.is_enabled);
+      const response = await startMpcScheduler();
+      setMpcRunning(response.data.is_enabled);
       await load();
     } catch {
-      setError("Lỗi AMPC: không gọi được backend.");
+      setError("Lỗi MPC: không gọi được backend.");
     } finally {
       setRunning(false);
     }
@@ -345,47 +343,30 @@ export function ForecastPage() {
   const recommendation = data?.recommendation ?? null;
   const scheduler = data?.scheduler ?? null;
   const isSafe = recommendation?.safety_status === "safe";
-  const ampcError = buildAmpcError(recommendation, scheduler);
+  const mpcError = buildMpcError(recommendation, scheduler);
 
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-slate-500" style={{ fontSize: "12px", fontWeight: 700 }}>
-            Dự báo AMPC
+            Dự báo MPC
           </p>
           <p className="text-slate-900" style={{ fontSize: "22px", fontWeight: 800 }}>
             Dự báo độ ẩm đất và lệnh bơm
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={load} disabled={loading || running} variant="outline" size="sm">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Tải lại
-          </Button>
           <Button
-            onClick={ampcRunning ? stopAmpc : startAmpc}
+            onClick={mpcRunning ? stopMpc : startMpc}
             disabled={running}
-            variant={ampcRunning ? "outline" : "default"}
+            variant={mpcRunning ? "outline" : "default"}
             size="sm"
           >
-            {ampcRunning ? <Square className="w-4 h-4 mr-2" /> : <Zap className="w-4 h-4 mr-2" />}
-            {ampcRunning ? "Dừng AMPC" : "Chạy AMPC"}
+            {mpcRunning ? <Square className="w-4 h-4 mr-2" /> : <Zap className="w-4 h-4 mr-2" />}
+            {mpcRunning ? "Dừng MPC" : "Chạy MPC"}
           </Button>
         </div>
-      </div>
-
-      <div
-        className={`rounded-2xl border px-4 py-3 ${
-          ampcRunning
-            ? "border-green-100 bg-green-50 text-green-700"
-            : "border-slate-100 bg-slate-50 text-slate-600"
-        }`}
-        style={{ fontSize: "13px" }}
-      >
-        {ampcRunning
-          ? "AMPC đang chạy ở backend: hệ thống vẫn tính lại mỗi 5 phút kể cả khi đóng hoặc tải lại trang web."
-          : "AMPC đang dừng: bấm Chạy AMPC để bật vòng dự báo nền ở backend."}
       </div>
 
       {error && (
@@ -418,17 +399,17 @@ export function ForecastPage() {
             {fmt(recommendation?.pump_seconds ?? 0, 0)}s
           </p>
           <p className="text-slate-400 mt-1" style={{ fontSize: "11px" }}>
-            {recommendation ? describeSafetyStatus(recommendation.safety_status) : "chưa chạy AMPC"}
+            {recommendation ? describeSafetyStatus(recommendation.safety_status) : "chưa chạy MPC"}
           </p>
         </div>
 
         <div className="elevated-card rounded-3xl p-5">
-          <p className="text-slate-500" style={{ fontSize: "12px" }}>Bias AMPC</p>
+          <p className="text-slate-500" style={{ fontSize: "12px" }}>Đã bơm hôm nay</p>
           <p className="text-slate-900 mt-1" style={{ fontSize: "30px", fontWeight: 800 }}>
-            {fmt(recommendation?.bias_correction ?? 0)}%
+            {fmt(recommendation?.used_today_pump_seconds ?? 0, 0)}s
           </p>
           <p className="text-slate-400 mt-1" style={{ fontSize: "11px" }}>
-            số mẫu sai lệch: {recommendation?.bias_window_count ?? 0}
+            Giới hạn ngày được tính trong cost
           </p>
         </div>
       </div>
@@ -442,11 +423,11 @@ export function ForecastPage() {
               Dự báo độ ẩm đất
             </p>
             <p className="text-slate-500" style={{ fontSize: "12px" }}>
-              Đường xanh lá là dữ liệu sensor, đường xanh dương là dự báo AMPC.
+              Đường xanh lá là dữ liệu sensor, đường xanh dương là dự báo MPC.
             </p>
-            {ampcError && (
+            {mpcError && (
               <p className="mt-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-red-700" style={{ fontSize: "12px", fontWeight: 700 }}>
-                {ampcError}
+                {mpcError}
               </p>
             )}
           </div>

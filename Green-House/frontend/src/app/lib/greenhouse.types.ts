@@ -52,9 +52,23 @@ export type GreenhouseStatePacket = {
   sensor_errors: SensorErrors;
   esp32_online: boolean;
   updated_at: string | null;
+  sun_tracker: SunTrackerState;
 };
 
 export type GreenhouseMessage =
   | { type: "bootstrap"; data: GreenhouseStatePacket }
   | { type: "state"; data: GreenhouseStatePacket }
   | { type: "error"; data?: unknown; reason?: string };
+
+  export type SunTrackerMode = "sun_auto" | "sun_manual";
+
+export type SunTrackerState = {
+  mode: SunTrackerMode;
+  ldr_lt: number;
+  ldr_rt: number;
+  ldr_ld: number;
+  ldr_rd: number;
+  servo_vertical: number;
+  servo_horizontal: number;
+  updated_at: string | null;
+};

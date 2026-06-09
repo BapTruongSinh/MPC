@@ -31,7 +31,7 @@ Cập nhật docs hướng dẫn chạy v2/v3, giải thích metric, safety gate
 - [x] Logic: Demo workflow đúng thứ tự và không yêu cầu bước chưa implement.
 - [x] Nghiệp vụ: Tài liệu giải thích đúng v2 MPC, v3 AMPC, metric, và fail-safe.
 - [x] Security: Guide không chứa secret thật và cảnh báo rõ khi closed-loop.
-- [x] Test chạy thực tế: Docs được đối chiếu với code/CLI thực tế và validation commands đã chạy.
+- [x] Test chạy thực tế: Docs được đối chiếu với code thực tế và validation commands đã chạy.
 
 ## Technical Notes
 

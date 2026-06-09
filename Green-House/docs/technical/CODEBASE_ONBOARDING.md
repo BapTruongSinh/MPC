@@ -40,7 +40,7 @@ ESP32 or live sample API
 
 - `api_estimationcycle` is the runtime source of truth. Do not reintroduce `pipeline_cycles`.
 - Default ARX artifact path resolves from `Green-House/backend/config/settings.py` to repo-root `ARX/arx_model.json`.
-- Local backend install uses `Green-House/backend/requirements-local.txt`, which installs `../../Kalman` and `../../MPC`.
+- Local backend install uses `Green-House/backend/requirements.txt`, which installs `../../Kalman` and `../../MPC`.
 - User-facing AMPC endpoints must verify user ownership through `Greenhouse.owner`.
 - Unsafe AMPC results must fail closed and must not create dangerous actuator commands.
 - Actuator auto-send is allowed only when control mode is `AUTO`, profile actuator is enabled, and recommendation safety is `safe`.
@@ -54,7 +54,7 @@ cd Green-House\backend
 python manage.py test api
 python manage.py check
 python manage.py makemigrations --check --dry-run
-python -m pip install -r requirements-local.txt --dry-run
+python -m pip install -r requirements.txt --dry-run
 ```
 
 ```powershell

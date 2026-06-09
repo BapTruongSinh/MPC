@@ -42,5 +42,5 @@ Chưa implement RLS model update ở task này; bias correction là AMPC stage �
 | Date | Agent / Human | Event |
 |------|--------------|-------|
 | 2026-05-08 | Codex | Task created |
-| 2026-05-09 | Codex | Implemented `AdaptiveConfig`, guarded `BiasEstimator`, `BiasCorrectedPlantModel`, adaptive simulation report with `mpc`/`ampc`/`threshold`, CLI `adaptive-simulate`, docs, and regression tests. |
+| 2026-05-09 | Codex | Implemented initial adaptive layer; later replaced by RLS AMPC and package-only runtime. |
 | 2026-05-09 | Codex | Fixed review findings: direct `run_adaptive_simulation()` now force-enables bias adaptation for default config, added regression coverage, and synced `CODEBASE_ONBOARDING.md` after owner review. |

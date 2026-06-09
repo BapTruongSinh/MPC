@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from mpc.actuator.base import ActuatorCommand, ActuatorResult
-from mpc.config import ActuatorConfig
+from mpc.core.config import ActuatorConfig
 
 
 @dataclass(frozen=True)

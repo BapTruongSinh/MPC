@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from mpc.state import ControllerState, DisturbanceForecast
+from mpc.core.state import ControllerState
 
 
 def test_controller_state_prefers_kalman_posterior() -> None:
@@ -99,19 +99,3 @@ def test_controller_state_from_mapping_validates_run_id() -> None:
                 "run_id": "1",
             }
         )
-
-
-def test_measured_hold_forecast_repeats_disturbances() -> None:
-    state = ControllerState(
-        timestamp=datetime.now(timezone.utc),
-        raw_soil_moisture=55.0,
-        temperature=27.0,
-        humidity=72.0,
-        light=300.0,
-    )
-
-    forecast = DisturbanceForecast.measured_hold(state, 3)
-
-    assert forecast.temperature == (27.0, 27.0, 27.0)
-    assert forecast.humidity == (72.0, 72.0, 72.0)
-    assert forecast.light == (300.0, 300.0, 300.0)

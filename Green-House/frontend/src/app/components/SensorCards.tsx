@@ -1,5 +1,5 @@
 import { Thermometer, Droplets, Sun, Sprout, TrendingUp, TrendingDown, Minus, AlertTriangle } from "lucide-react";
-import type { SensorErrors, SensorReading } from "../lib/websocket";
+import type { SensorErrors, SensorReading } from "../lib/greenhouse.types";
 
 interface SensorCardsProps {
   data: SensorReading | null;
@@ -55,21 +55,7 @@ const cardConfigs: CardConfig[] = [
     trend: "stable",
     trendVal: "0.0",
   },
-  {
-    label: "Ánh sáng",
-    apiKey: "light",
-    errorKey: "light",
-    unit: "%",
-    icon: Sun,
-    iconBg: "bg-amber-50",
-    iconColor: "text-amber-500",
-    progressColor: "#eab308",
-    min: 0,
-    max: 100,
-    optimal: { min: 30, max: 80 },
-    trend: "down",
-    trendVal: "-1.2",
-  },
+
   {
     label: "Độ ẩm đất",
     apiKey: "soil_moisture",
@@ -132,7 +118,7 @@ const defaultSensorErrors: SensorErrors = {
 
 export function SensorCards({ data, sensorErrors = defaultSensorErrors }: SensorCardsProps) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
       {cardConfigs.map((card) => {
         const Icon = card.icon;
 

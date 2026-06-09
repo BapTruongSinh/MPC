@@ -1,6 +1,7 @@
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { Leaf, AlertCircle } from "lucide-react";
+import { Leaf, AlertCircle, ShieldCheck } from "lucide-react";
+import { authSetup, authSetupStatus } from "../api/endpoints";
 
 export function LoginPage() {
   const { login } = useAuth();
@@ -8,19 +9,49 @@ export function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [setupMode, setSetupMode] = useState(false);
+  const [checkingSetup, setCheckingSetup] = useState(true);
+
+  useEffect(() => {
+    authSetupStatus()
+      .then((res) => {
+        setSetupMode(res.data.setup_required);
+      })
+      .catch((err) => console.error("Error checking setup status:", err))
+      .finally(() => setCheckingSetup(false));
+  }, []);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
     try {
-      await login(username, password);
-    } catch {
-      setError("Tên đăng nhập hoặc mật khẩu không đúng.");
+      if (setupMode) {
+        await authSetup(username, password);
+        await login(username, password); // Auto login after setup
+      } else {
+        await login(username, password);
+      }
+    } catch (err: any) {
+      if (setupMode) {
+        setError(err.response?.data?.detail || "Không thể khởi tạo tài khoản.");
+      } else {
+        setError("Tên đăng nhập hoặc mật khẩu không đúng.");
+      }
     } finally {
       setLoading(false);
     }
   };
+
+  if (checkingSetup) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="flex items-center gap-2 text-slate-500 font-medium">
+          <Leaf className="w-5 h-5 animate-pulse" /> Đang khởi tạo...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
@@ -28,15 +59,15 @@ export function LoginPage() {
       <div className="pointer-events-none absolute bottom-20 left-[10%] h-64 w-64 rounded-full bg-slate-200 blur-3xl opacity-60" />
 
       <div className="elevated-card rounded-3xl p-10 w-full max-w-sm relative z-10">
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-14 h-14 gradient-action rounded-2xl flex items-center justify-center mb-4 shadow-lg">
-            <Leaf className="w-7 h-7 text-white" />
+        <div className="flex flex-col items-center mb-8 text-center">
+          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 shadow-lg ${setupMode ? "bg-emerald-500" : "gradient-action"}`}>
+            {setupMode ? <ShieldCheck className="w-7 h-7 text-white" /> : <Leaf className="w-7 h-7 text-white" />}
           </div>
           <h1 className="text-slate-900" style={{ fontSize: "22px", fontWeight: 800 }}>
-            Smart Greenhouse
+            {setupMode ? "Thiết lập ban đầu" : "Smart Greenhouse"}
           </h1>
           <p className="text-slate-500 mt-1" style={{ fontSize: "13px" }}>
-            Đăng nhập để quản lý nhà kính
+            {setupMode ? "Hệ thống chưa có tài khoản, vui lòng tạo tài khoản Admin đầu tiên." : "Đăng nhập để quản lý nhà kính"}
           </p>
         </div>
 
@@ -82,10 +113,10 @@ export function LoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 gradient-action text-white rounded-xl transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-60 disabled:translate-y-0 mt-2"
+            className={`w-full py-2.5 text-white rounded-xl transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-60 disabled:translate-y-0 mt-2 ${setupMode ? "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-200 shadow-lg" : "gradient-action"}`}
             style={{ fontSize: "14px", fontWeight: 700 }}
           >
-            {loading ? "Đang đăng nhập..." : "Đăng nhập"}
+            {loading ? "Đang xử lý..." : setupMode ? "Khởi tạo Admin" : "Đăng nhập"}
           </button>
         </form>
       </div>

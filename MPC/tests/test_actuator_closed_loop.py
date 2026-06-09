@@ -4,43 +4,11 @@ import json
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from threading import Thread
-from typing import Sequence
 
 from mpc.actuator import ActuatorCommand, ActuatorResult
-from mpc.closed_loop import run_closed_loop
-from mpc.config import ActuatorConfig, ControllerConfig, PumpLimits
-from mpc.state import ControllerState, DisturbanceForecast, PlantRecord
-
-
-class _PumpResponsiveModel:
-    @property
-    def min_history_len(self) -> int:
-        return 1
-
-    def predict_next(
-        self,
-        history: Sequence[PlantRecord],
-        *,
-        pump_seconds: float,
-        step_seconds: int,
-        disturbance: PlantRecord | None = None,
-    ) -> float:
-        return history[-1].soil_moisture + (2.0 * pump_seconds / step_seconds)
-
-    def forecast(
-        self,
-        history: Sequence[PlantRecord],
-        *,
-        pump_seconds: Sequence[float],
-        step_seconds: int,
-        disturbances: DisturbanceForecast,
-    ) -> tuple[float, ...]:
-        current = history[-1].soil_moisture
-        values: list[float] = []
-        for pump in pump_seconds:
-            current += 2.0 * pump / step_seconds
-            values.append(current)
-        return tuple(values)
+from mpc.control.closed_loop import run_closed_loop
+from mpc.core.config import ActuatorConfig, ControllerConfig, PumpLimits
+from mpc.core.state import ControllerState
 
 
 class _CaptureHandler(BaseHTTPRequestHandler):
@@ -71,11 +39,8 @@ def test_closed_loop_posts_safe_command_to_fake_http_actuator(
 
         result = run_closed_loop(
             state=_state(now),
-            history=_history(),
-            plant_model=_PumpResponsiveModel(),
             config=_config(server.url),
             now=now,
-            beam_width=4,
             command_id_factory=lambda: "cmd-1",
         )
 
@@ -85,7 +50,7 @@ def test_closed_loop_posts_safe_command_to_fake_http_actuator(
         request = server.requests[0]
         assert request["authorization"] == "Bearer secret-token"
         assert request["payload"]["command_id"] == "cmd-1"
-        assert request["payload"]["pump_seconds"] == 300.0
+        assert 0.0 < request["payload"]["pump_seconds"] <= 300.0
         assert request["payload"]["mode"] == "auto"
         assert request["payload"]["reason"] == "mpc_recommendation_safe"
         assert "secret-token" not in json.dumps(result.to_dict())
@@ -98,11 +63,8 @@ def test_closed_loop_stale_sample_posts_fail_closed_command(monkeypatch) -> None
 
         result = run_closed_loop(
             state=_state(now - timedelta(seconds=601)),
-            history=_history(),
-            plant_model=_PumpResponsiveModel(),
             config=_config(server.url),
             now=now,
-            beam_width=4,
             command_id_factory=lambda: "cmd-stale",
         )
 
@@ -121,11 +83,8 @@ def test_closed_loop_missing_token_fails_closed_without_http(monkeypatch) -> Non
 
         result = run_closed_loop(
             state=_state(now),
-            history=_history(),
-            plant_model=_PumpResponsiveModel(),
             config=_config(server.url),
             now=now,
-            beam_width=4,
             command_id_factory=lambda: "cmd-missing-token",
         )
 
@@ -143,14 +102,11 @@ def test_closed_loop_injected_client_still_requires_explicit_actuator_config() -
 
     result = run_closed_loop(
         state=_state(now),
-        history=_history(),
-        plant_model=_PumpResponsiveModel(),
         config=ControllerConfig(
             horizon_steps=1,
-            pump=PumpLimits(max_seconds=300.0, grid_seconds=300.0),
+            pump=PumpLimits(max_seconds=300.0),
         ),
         now=now,
-        beam_width=4,
         actuator_client=client,
         command_id_factory=lambda: "cmd-bypass",
     )
@@ -171,11 +127,8 @@ def test_closed_loop_http_failure_returns_fail_closed_result(monkeypatch) -> Non
 
         result = run_closed_loop(
             state=_state(now),
-            history=_history(),
-            plant_model=_PumpResponsiveModel(),
             config=_config(server.url),
             now=now,
-            beam_width=4,
             command_id_factory=lambda: "cmd-http-fail",
         )
 
@@ -191,7 +144,7 @@ def test_closed_loop_http_failure_returns_fail_closed_result(monkeypatch) -> Non
 def _config(url: str) -> ControllerConfig:
     return ControllerConfig(
         horizon_steps=1,
-        pump=PumpLimits(max_seconds=300.0, grid_seconds=300.0),
+        pump=PumpLimits(max_seconds=300.0),
         actuator=ActuatorConfig(
             enabled=True,
             url=url,
@@ -204,25 +157,13 @@ def _config(url: str) -> ControllerConfig:
 def _state(timestamp: datetime) -> ControllerState:
     return ControllerState(
         timestamp=timestamp,
-        kf_x_posterior=0.0,
+        kf_x_posterior=50.0,
         temperature=27.0,
         humidity=72.0,
         light=300.0,
         last_pump_seconds=0.0,
         run_id=7,
     )
-
-
-def _history() -> tuple[PlantRecord, ...]:
-    return (
-        PlantRecord(
-            soil_moisture=0.0,
-            temperature=27.0,
-            humidity=72.0,
-            light=300.0,
-        ),
-    )
-
 
 class _FakeActuatorClient:
     def __init__(self) -> None:

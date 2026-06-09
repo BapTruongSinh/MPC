@@ -5,9 +5,6 @@ export type AutoSettingsNumericField = keyof Pick<
   | "crop_kc"
   | "latitude"
   | "longitude"
-  | "theta_fc"
-  | "theta_wp"
-  | "theta_sat"
   | "root_depth_m"
   | "depletion_fraction_p"
   | "pump_efficiency"
@@ -15,7 +12,8 @@ export type AutoSettingsNumericField = keyof Pick<
   | "irrigation_area_m2"
   | "target_low"
   | "target_high"
-  | "pump_max_seconds"
+  | "step_seconds"
+  | "horizon_steps"
   | "soft_daily_pump_cap_seconds"
   | "weight_band"
   | "weight_water"
@@ -27,7 +25,6 @@ export type AutoSettingsNumericField = keyof Pick<
 export type AutoSettingsPayloadField =
   | AutoSettingsNumericField
   | "soil_type"
-  | "adaptive_enabled"
   | "actuator_enabled";
 
 export type NumericFieldConfig = {
@@ -48,12 +45,12 @@ export type NumericFieldGroup = {
 
 export const FAO_SOIL_PRESETS: Record<
   FaoSoilType,
-  { label: string; theta_fc: number; theta_wp: number; theta_sat: number }
+  { label: string; theta_fc: number; theta_wp: number }
 > = {
-  sand: { label: "Cát", theta_fc: 0.1, theta_wp: 0.04, theta_sat: 0.45 },
-  light_loam: { label: "Thịt nhẹ", theta_fc: 0.15, theta_wp: 0.06, theta_sat: 0.45 },
-  loam: { label: "Đất thịt", theta_fc: 0.32, theta_wp: 0.15, theta_sat: 0.45 },
-  clay_loam: { label: "Thịt sét", theta_fc: 0.35, theta_wp: 0.23, theta_sat: 0.45 },
+  sand: { label: "Cát", theta_fc: 0.1, theta_wp: 0.04 },
+  light_loam: { label: "Thịt nhẹ", theta_fc: 0.15, theta_wp: 0.06 },
+  loam: { label: "Đất thịt", theta_fc: 0.32, theta_wp: 0.15 },
+  clay_loam: { label: "Thịt sét", theta_fc: 0.35, theta_wp: 0.23 },
 };
 
 export const FAO_SOIL_OPTIONS: FaoSoilType[] = ["sand", "light_loam", "loam", "clay_loam"];
@@ -61,40 +58,38 @@ export const FAO_SOIL_OPTIONS: FaoSoilType[] = ["sand", "light_loam", "loam", "c
 export const AUTO_SETTINGS_NUMERIC_GROUPS: NumericFieldGroup[] = [
   {
     title: "FAO-56",
-    description: "Thông số vật lý cho mô hình Dr/RAW. Sensor % không phải theta.",
+    description: "Thông số vật lý cho mô hình Dr/RAW.",
     fields: [
-      { field: "crop_kc", label: "Kc cây trồng", suffix: "", step: "0.01", min: 0 },
-      { field: "root_depth_m", label: "Zr độ sâu rễ", suffix: "m", step: "0.01", min: 0.01 },
-      { field: "depletion_fraction_p", label: "p depletion", suffix: "", step: "0.01", min: 0.01, max: 0.99 },
-      { field: "pump_flow_lps", label: "Q lưu lượng bơm", suffix: "L/s", step: "0.001", min: 0.001 },
-      { field: "irrigation_area_m2", label: "A diện tích tưới", suffix: "m2", step: "0.01", min: 0.01 },
-      { field: "pump_efficiency", label: "eta hiệu suất bơm", suffix: "", step: "0.01", min: 0.01, max: 1 },
+      { field: "crop_kc", label: "Kc cây trồng", helper: "Hệ số cây trồng, ứng với mỗi loại cây sẽ có một hệ số riêng", suffix: "", step: "0.01", min: 0 },
+      { field: "root_depth_m", label: "Zr độ sâu rễ", helper: "Độ sâu vùng rễ, đối với mỗi loại cây thì rễ chính sẽ dài khác nhau", suffix: "m", step: "0.01", min: 0.01 },
+      { field: "depletion_fraction_p", label: "p depletion", helper: "Tỉ lệ nước nước quanh rễ cây mà cây có thể sử dụng được", suffix: "", step: "0.01", min: 0.01, max: 0.99 },
+      { field: "pump_flow_lps", label: "Q lưu lượng bơm", helper: "Lưu lượng nước bơm theo lít mỗi giây của máy bơm.", suffix: "L/s", step: "0.001", min: 0.001 },
+      { field: "irrigation_area_m2", label: "A diện tích tưới", helper: "Diện tích đất mà máy bơm có thể tưới được.", suffix: "m2", step: "0.01", min: 0.01 },
+      { field: "pump_efficiency", label: "eta hiệu suất bơm", helper: "Tỉ lệ nước bơm ra đi tới vùng rễ của cây", suffix: "", step: "0.01", min: 0.01, max: 1 },
     ],
   },
   {
-    title: "Đất và ET0",
-    description: "Theta dùng đơn vị m3/m3; phần trăm cảm biến chỉ là thang hiển thị 0-100.",
+    title: "Vị trí",
+    description: "Tọa độ nhà kính dùng cho ET0.",
     fields: [
-      { field: "theta_fc", label: "theta_fc sức chứa đồng ruộng", suffix: "m3/m3", step: "0.01", min: 0, max: 0.8 },
-      { field: "theta_wp", label: "theta_wp điểm héo", suffix: "m3/m3", step: "0.01", min: 0, max: 0.8 },
-      { field: "theta_sat", label: "theta_sat bão hòa", suffix: "m3/m3", step: "0.01", min: 0, max: 0.8 },
-      { field: "latitude", label: "Vĩ độ", suffix: "deg", step: "0.0001", min: -90, max: 90 },
-      { field: "longitude", label: "Kinh độ", suffix: "deg", step: "0.0001", min: -180, max: 180 },
+      { field: "latitude", label: "Vĩ độ", helper: "Tọa độ hiện tại của nhà kính", suffix: "deg", step: "0.0001", min: -90, max: 90 },
+      { field: "longitude", label: "Kinh độ", helper: "Tọa độ hiện tại của nhà kính", suffix: "deg", step: "0.0001", min: -180, max: 180 },
     ],
   },
   {
-    title: "Tương thích dashboard",
-    description: "Các ngưỡng sensor % vẫn giữ cho hiển thị và so sánh legacy.",
+    title: "Dự báo và điều khiển",
+    description: "Ngưỡng cảm biến, chu kỳ dự báo và trọng số tối ưu.",
     fields: [
-      { field: "target_low", label: "Ngưỡng sensor thấp", suffix: "%", step: "1", min: 0, max: 100 },
-      { field: "target_high", label: "Ngưỡng sensor cao", suffix: "%", step: "1", min: 0, max: 100 },
-      { field: "pump_max_seconds", label: "Bơm tối đa mỗi bước", suffix: "giây", step: "1", min: 1 },
-      { field: "soft_daily_pump_cap_seconds", label: "Giới hạn bơm/ngày", suffix: "giây", step: "1", min: 0 },
-      { field: "weight_band", label: "Trọng số stress/overwater", suffix: "", step: "0.1", min: 0 },
-      { field: "weight_water", label: "Trọng số tiết kiệm nước", suffix: "", step: "0.1", min: 0 },
-      { field: "weight_switch", label: "Trọng số đổi lệnh", suffix: "", step: "0.1", min: 0 },
-      { field: "weight_daily", label: "Trọng số giới hạn ngày", suffix: "", step: "0.1", min: 0 },
-      { field: "weight_terminal", label: "Trọng số cuối chu kỳ", suffix: "", step: "0.1", min: 0 },
+      { field: "target_low", label: "Ngưỡng sensor thấp", helper: "Độ ẩm trong đất ở mức thấp, đảm bảo cây phát triển bình thường", suffix: "%", step: "1", min: 0, max: 100 },
+      { field: "target_high", label: "Ngưỡng sensor cao", helper: "Độ ẩm trong đất ở mức cao, đảm bảo cây không bị ngập nước", suffix: "%", step: "1", min: 0, max: 100 },
+      { field: "step_seconds", label: "Thời gian mỗi bước", helper: "Độ dài một bước dự báo", suffix: "giây", step: "5", min: 5 },
+      { field: "horizon_steps", label: "Số bước dự báo", helper: "Số bước tương lai để dự đoán", suffix: "bước", step: "1", min: 1 },
+      { field: "soft_daily_pump_cap_seconds", label: "Giới hạn bơm/ngày", helper: "Giới hạn tổng thời gian bơm trong một ngày.", suffix: "giây", step: "1", min: 0 },
+      { field: "weight_band", label: "Trọng số stress/overwater", helper: "Mức phạt khi đất quá khô hoặc quá ẩm.", suffix: "", step: "0.1", min: 0 },
+      { field: "weight_water", label: "Trọng số tiết kiệm nước", helper: "Mức phạt cho việc dùng nhiều nước.", suffix: "", step: "0.1", min: 0 },
+      { field: "weight_switch", label: "Trọng số đổi lệnh", helper: "Mức phạt khi lệnh bơm thay đổi mạnh so với lần trước.", suffix: "", step: "0.1", min: 0 },
+      { field: "weight_daily", label: "Trọng số giới hạn ngày", helper: "Mức phạt khi kế hoạch vượt giới hạn bơm/ngày.", suffix: "", step: "0.1", min: 0 },
+      { field: "weight_terminal", label: "Trọng số cuối chu kỳ", helper: "Mức phạt trạng thái đất ở cuối dự báo.", suffix: "", step: "0.1", min: 0 },
     ],
   },
 ];
@@ -104,9 +99,6 @@ export const AUTO_SETTINGS_PAYLOAD_FIELDS: AutoSettingsPayloadField[] = [
   "latitude",
   "longitude",
   "soil_type",
-  "theta_fc",
-  "theta_wp",
-  "theta_sat",
   "root_depth_m",
   "depletion_fraction_p",
   "pump_efficiency",
@@ -114,14 +106,14 @@ export const AUTO_SETTINGS_PAYLOAD_FIELDS: AutoSettingsPayloadField[] = [
   "irrigation_area_m2",
   "target_low",
   "target_high",
-  "pump_max_seconds",
+  "step_seconds",
+  "horizon_steps",
   "soft_daily_pump_cap_seconds",
   "weight_band",
   "weight_water",
   "weight_switch",
   "weight_daily",
   "weight_terminal",
-  "adaptive_enabled",
   "actuator_enabled",
 ];
 
@@ -132,7 +124,6 @@ export function applySoilPreset(profile: ControlProfile, soilType: FaoSoilType):
     soil_type: soilType,
     theta_fc: preset.theta_fc,
     theta_wp: preset.theta_wp,
-    theta_sat: preset.theta_sat,
   };
 }
 
@@ -150,9 +141,6 @@ const FINITE_NUMERIC_LABELS: Array<[AutoSettingsNumericField, string]> = [
   ["crop_kc", "Kc cây trồng"],
   ["latitude", "Vĩ độ"],
   ["longitude", "Kinh độ"],
-  ["theta_fc", "theta_fc"],
-  ["theta_wp", "theta_wp"],
-  ["theta_sat", "theta_sat"],
   ["root_depth_m", "Zr độ sâu rễ"],
   ["depletion_fraction_p", "p depletion"],
   ["pump_efficiency", "eta hiệu suất bơm"],
@@ -160,7 +148,8 @@ const FINITE_NUMERIC_LABELS: Array<[AutoSettingsNumericField, string]> = [
   ["irrigation_area_m2", "A diện tích tưới"],
   ["target_low", "Ngưỡng sensor thấp"],
   ["target_high", "Ngưỡng sensor cao"],
-  ["pump_max_seconds", "Bơm tối đa mỗi bước"],
+  ["step_seconds", "Thời gian mỗi bước"],
+  ["horizon_steps", "Số bước dự báo"],
   ["soft_daily_pump_cap_seconds", "Giới hạn bơm/ngày"],
   ["weight_band", "Trọng số stress/overwater"],
   ["weight_water", "Trọng số tiết kiệm nước"],
@@ -203,15 +192,6 @@ export function validateAutoSettings(profile: ControlProfile): string {
   const nonNegativeError = validateNonNegativeNumbers(profile);
   if (nonNegativeError) return nonNegativeError;
 
-  const thetaValid =
-    0 <= profile.theta_wp &&
-    profile.theta_wp < profile.theta_fc &&
-    profile.theta_fc < profile.theta_sat &&
-    profile.theta_sat <= 0.8;
-
-  if (!thetaValid) {
-    return "Theta phải thỏa 0 <= theta_wp < theta_fc < theta_sat <= 0.8.";
-  }
   if (profile.root_depth_m <= 0) return "Zr độ sâu rễ phải lớn hơn 0.";
   if (profile.pump_flow_lps <= 0) return "Q lưu lượng bơm phải lớn hơn 0.";
   if (profile.irrigation_area_m2 <= 0) return "A diện tích tưới phải lớn hơn 0.";
@@ -226,7 +206,16 @@ export function validateAutoSettings(profile: ControlProfile): string {
   if (!(0 <= profile.target_low && profile.target_low < profile.target_high && profile.target_high <= 100)) {
     return "Ngưỡng sensor phải thỏa 0 <= thấp < cao <= 100.";
   }
-  if (profile.pump_max_seconds <= 0) return "Bơm tối đa mỗi bước phải lớn hơn 0.";
+  if (
+    !Number.isInteger(profile.step_seconds) ||
+    profile.step_seconds < 5 ||
+    profile.step_seconds % 5 !== 0
+  ) {
+    return "Thời gian mỗi bước phải là bội số 5 giây.";
+  }
+  if (!Number.isInteger(profile.horizon_steps) || profile.horizon_steps < 1) {
+    return "Số bước dự báo phải là số nguyên >= 1.";
+  }
   if (profile.soft_daily_pump_cap_seconds <= 0) return "Giới hạn bơm/ngày phải lớn hơn 0.";
   return "";
 }

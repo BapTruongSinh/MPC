@@ -1,5 +1,5 @@
 import { AlertTriangle, Bell, CheckCircle, Info, X } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRealtime } from "../contexts/RealtimeContext";
 
 function timeAgo(dateString: string) {
@@ -16,6 +16,14 @@ export function Alerts() {
   const { alerts, markAlertRead, markAllAlertsRead } = useRealtime();
   const [filter, setFilter] = useState<"all" | "unread">("all");
   const [dismissed, setDismissed] = useState<number[]>([]);
+
+  // Automatically mark all alerts as read when visiting the page
+  useEffect(() => {
+    const unreadCount = alerts.filter((a) => !a.is_read).length;
+    if (unreadCount > 0) {
+      markAllAlertsRead();
+    }
+  }, [alerts, markAllAlertsRead]);
 
   const visibleAlerts = alerts.filter((a) => !dismissed.includes(a.id));
   const filteredAlerts = filter === "all" ? visibleAlerts : visibleAlerts.filter((a) => !a.is_read);

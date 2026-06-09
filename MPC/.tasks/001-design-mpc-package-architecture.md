@@ -17,7 +17,7 @@ blocked_by: []
 
 ## Description
 
-Chốt cấu trúc package Python, config mặc định, public dataclasses, CLI command layout, và default weights cho v2/v3. Task này biến PRD thành interface đủ cụ thể để implement không phải đoán.
+Chốt cấu trúc package Python, config mặc định, public dataclasses, và default weights cho v2/v3. Runtime hiện được gọi qua backend/import Python.
 
 ## Acceptance Criteria
 
