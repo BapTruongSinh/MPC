@@ -14,7 +14,15 @@ from mpc.solver import ScipyMpcSolver
 
 from .estimation import ensure_estimation_for_reading, ensure_recent_window_estimations, latest_estimation
 from .et0 import ET0Reading, OpenMeteoError, get_hourly_et0
-from .models import AMPCRecommendation, ControlState, EstimationCycle, GreenhouseControlProfile, SensorData
+from .models import (
+    AMPCRecommendation,
+    ControlState,
+    DeviceCommand,
+    DeviceState,
+    EstimationCycle,
+    GreenhouseControlProfile,
+    SensorData,
+)
 from .services import enqueue_device_command, notify_pending_commands
 from .user_resources import control_owner, ensure_user_control_profile
 
@@ -241,26 +249,59 @@ def _queue_pump_command(audit: AMPCRecommendation) -> AMPCRecommendation:
 
     duration = _pump_command_duration(audit.pump_seconds)
     is_on = duration > 0
-    audit.device_command = enqueue_device_command(
-        device_code='pump',
-        command='set_power',
-        value='on' if is_on else 'off',
-        payload={
-            'source': 'mpc',
-            'duration': duration,
-            'recommendation_id': audit.id,
-            'step_seconds': audit.step_seconds,
-            'safety_status': audit.safety_status,
-        },
+    value = 'on' if is_on else 'off'
+    payload = {'duration': duration} if is_on else {}
+
+    skip_reason = _pump_command_skip_reason(value)
+    audit.device_command = (
+        _skipped_pump_command(value, payload, skip_reason)
+        if skip_reason
+        else enqueue_device_command(
+            device_code='pump',
+            command='set_power',
+            value=value,
+            payload=payload,
+        )
     )
-    audit.command_created = True
-    audit.actuator_status = AMPCRecommendation.ActuatorStatus.QUEUED
+    audit.command_created = audit.device_command.status == DeviceCommand.CommandStatus.PENDING
+    audit.actuator_status = (
+        AMPCRecommendation.ActuatorStatus.QUEUED
+        if audit.command_created
+        else AMPCRecommendation.ActuatorStatus.NOT_CALLED
+    )
     audit.save(update_fields=[
         'device_command', 'command_created', 'actuator_status',
         'updated_at',
     ])
-    notify_pending_commands()
+    if audit.command_created:
+        notify_pending_commands()
     return audit
+
+
+def _skipped_pump_command(value: str, payload: dict, reason: str) -> DeviceCommand:
+    return DeviceCommand.objects.create(
+        device_code='pump',
+        command='set_power',
+        value=value,
+        payload={**payload, 'skip_reason': reason},
+        status=DeviceCommand.CommandStatus.SKIPPED,
+        acked_at=timezone.now(),
+    )
+
+
+def _pump_command_skip_reason(value: str) -> str:
+    if DeviceCommand.objects.filter(
+        device_code='pump',
+        command='set_power',
+        value=value,
+        status=DeviceCommand.CommandStatus.PENDING,
+    ).exists():
+        return 'duplicate_pending'
+
+    state = DeviceState.objects.filter(device_code='pump').only('is_on').first()
+    if state and state.is_on == (value == 'on'):
+        return f'pump_already_{value}'
+    return ''
 
 
 def _pump_command_duration(seconds: float) -> int:
