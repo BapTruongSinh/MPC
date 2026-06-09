@@ -31,6 +31,7 @@ from .views import (
     TelegramSettingsView,
     SetupView,
     SetupStatusView,
+    ESP32ThresholdView,
 )
 
 urlpatterns = [
@@ -65,4 +66,5 @@ urlpatterns = [
     path('ingest/commands/pending/', IngestPendingCommandsView.as_view(), name='ingest-pending-commands'),
     path('ingest/commands/<int:pk>/ack/', IngestCommandAckView.as_view(), name='ingest-command-ack'),
     path('settings/telegram/', TelegramSettingsView.as_view(), name='telegram-settings'),
+    path('settings/thresholds/', ESP32ThresholdView.as_view(), name='esp32-thresholds'),
 ]

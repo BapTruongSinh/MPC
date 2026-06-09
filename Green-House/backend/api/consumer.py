@@ -228,6 +228,35 @@ def do_mark_device_offline(device_code: str):
     mark_device_offline(device_code)
 
 
+@database_sync_to_async
+def get_threshold_config() -> dict:
+    """Lấy ngưỡng ESP32 từ profile."""
+    from .user_resources import default_owner, ensure_user_greenhouse_config
+    from .models import GreenhouseControlProfile
+    owner = default_owner()
+    greenhouse, _ = ensure_user_greenhouse_config(owner)
+    profile, _ = GreenhouseControlProfile.objects.get_or_create(
+        greenhouse=greenhouse,
+        defaults={'singleton_key': f'gh-{greenhouse.pk}'},
+    )
+    return {
+        'thresh_temp_fan_on': profile.thresh_temp_fan_on,
+        'thresh_temp_fan_off': profile.thresh_temp_fan_off,
+        'thresh_hum_fan_on': profile.thresh_hum_fan_on,
+        'thresh_hum_fan_off': profile.thresh_hum_fan_off,
+        'thresh_hum_mist_on': profile.thresh_hum_mist_on,
+        'thresh_hum_mist_off': profile.thresh_hum_mist_off,
+        'thresh_soil_pump_on': profile.thresh_soil_pump_on,
+        'thresh_soil_pump_off': profile.thresh_soil_pump_off,
+        'thresh_light_on_ldr': profile.thresh_light_on_ldr,
+        'thresh_light_off_ldr': profile.thresh_light_off_ldr,
+    }
+
+
+def _push_threshold_to_esp32():
+    """Hàm giả (được import bởi views.py, thực chất push qua group_send)."""
+    pass
+
 class FrontendConsumer(AsyncWebsocketConsumer):
     async def connect(self):
         self.monitor_task = None
@@ -424,6 +453,7 @@ class ESPConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
         await self.send_pending_commands()
+        await self.send_threshold_config()
         await self.push_state_to_frontend()
 
     async def disconnect(self, close_code):
@@ -482,6 +512,18 @@ class ESPConsumer(AsyncWebsocketConsumer):
                     'data': {
                         'commands': commands,
                     },
+                }
+            )
+        )
+
+    async def send_threshold_config(self):
+        """Gửi ngưỡng điều khiển xuống ESP32 ngay khi kết nối."""
+        thresholds = await get_threshold_config()
+        await self.send(
+            text_data=json.dumps(
+                {
+                    'type': 'threshold_config',
+                    'data': thresholds,
                 }
             )
         )

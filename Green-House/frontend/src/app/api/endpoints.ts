@@ -315,3 +315,23 @@ export const getTelegramSettings = () =>
   apiClient.get<TelegramSettings>("/settings/telegram/");
 export const updateTelegramSettings = (payload: { telegram_bot_token?: string; telegram_chat_id?: string }) =>
   apiClient.patch<{ detail: string; chat_id: string }>("/settings/telegram/", payload);
+
+// ─── ESP32 Threshold Settings ─────────────────────────────────────────────────
+export interface ESP32Thresholds {
+  thresh_temp_fan_on: number;
+  thresh_temp_fan_off: number;
+  thresh_hum_fan_on: number;
+  thresh_hum_fan_off: number;
+  thresh_hum_mist_on: number;
+  thresh_hum_mist_off: number;
+  thresh_soil_pump_on: number;
+  thresh_soil_pump_off: number;
+  thresh_light_on_ldr: number;
+  thresh_light_off_ldr: number;
+  updated_at: string;
+}
+
+export const getThresholds = () =>
+  apiClient.get<ESP32Thresholds>("/settings/thresholds/");
+export const updateThresholds = (payload: Partial<Omit<ESP32Thresholds, "updated_at">>) =>
+  apiClient.patch<ESP32Thresholds>("/settings/thresholds/", payload);

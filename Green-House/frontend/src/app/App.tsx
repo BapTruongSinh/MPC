@@ -7,6 +7,7 @@ import { SensorChart } from "./components/SensorChart";
 import { SensorHistory } from "./components/SensorHistory";
 import { AutoSettings } from "./components/AutoSettings";
 import { TelegramSettings } from "./components/TelegramSettings";
+import { ThresholdSettings } from "./components/ThresholdSettings";
 import { StatusBar } from "./components/StatusBar";
 import { Alerts } from "./components/Alerts";
 import { ForecastPage } from "./components/ForecastPage";
@@ -100,6 +101,7 @@ function Dashboard() {
           <div className="space-y-5">
             <AutoSettings />
             <TelegramSettings />
+            <ThresholdSettings />
           </div>
         )}
         {activeMenu === "alerts" && <Alerts />}

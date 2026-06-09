@@ -38,6 +38,7 @@ from .serializers import (
     DeviceCommandInputSerializer,
     DeviceCommandSerializer,
     DeviceStateSerializer,
+    ESP32ThresholdSerializer,
     EstimationCycleSerializer,
     CycleSerializer,
     EvaluationSummarySerializer,
@@ -181,7 +182,7 @@ class SetupStatusView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        setup_required = not User.objects.exists()
+        setup_required = not User.objects.filter(is_superuser=True).exists()
         return Response({'setup_required': setup_required})
 
 
@@ -189,7 +190,7 @@ class SetupView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        if User.objects.exists():
+        if User.objects.filter(is_superuser=True).exists():
             return Response({'detail': 'Setup already completed'}, status=status.HTTP_400_BAD_REQUEST)
 
         username = request.data.get('username')
@@ -701,6 +702,54 @@ class TelegramSettingsView(APIView):
             settings.TELEGRAM_CHAT_ID = chat_id
 
         return Response({'detail': 'Đã cập nhật cấu hình Telegram thành công.', 'chat_id': chat_id})
+
+
+class ESP32ThresholdView(APIView):
+    """GET / PATCH ngưỡng điều khiển tự động cho ESP32."""
+
+    def get(self, request):
+        from .ampc import get_greenhouse_control_profile
+        from .consumer import _push_threshold_to_esp32
+        profile = get_greenhouse_control_profile(request.user)
+        return Response(ESP32ThresholdSerializer(profile).data)
+
+    def patch(self, request):
+        from .ampc import get_greenhouse_control_profile
+        from .consumer import _push_threshold_to_esp32
+        import asyncio
+        from channels.layers import get_channel_layer
+        from asgiref.sync import async_to_sync
+
+        profile = get_greenhouse_control_profile(request.user)
+        serializer = ESP32ThresholdSerializer(profile, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        profile = serializer.save()
+
+        # Push ngưỡng mới xuống ESP32 ngay lập tức
+        threshold_data = {
+            k: getattr(profile, k)
+            for k in [
+                'thresh_temp_fan_on', 'thresh_temp_fan_off',
+                'thresh_hum_fan_on', 'thresh_hum_fan_off',
+                'thresh_hum_mist_on', 'thresh_hum_mist_off',
+                'thresh_soil_pump_on', 'thresh_soil_pump_off',
+                'thresh_light_on_ldr', 'thresh_light_off_ldr',
+            ]
+        }
+        try:
+            channel_layer = get_channel_layer()
+            async_to_sync(channel_layer.group_send)(
+                'esp32.main',
+                {
+                    'type': 'ws_message',
+                    'event_type': 'threshold_config',
+                    'data': threshold_data,
+                }
+            )
+        except Exception:
+            pass  # Không để lỗi push WebSocket làm hỏng response API
+
+        return Response(serializer.data)
 
 
 class IngestReadingsView(APIView):

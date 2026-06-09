@@ -99,6 +99,7 @@ def cleanup_legacy_columns(apps, schema_editor):
             'double precision NOT NULL',
         )
 
+        drop_checks_referencing(cursor, 'api_controlprofile', ['pump_grid_seconds', 'adaptive_bias_window', 'adaptive_max_abs_bias'])
         drop_column_if_exists(cursor, 'api_controlprofile', 'pump_grid_seconds')
         rename_column_if_exists(
             cursor,
@@ -115,6 +116,7 @@ def cleanup_legacy_columns(apps, schema_editor):
             'double precision NOT NULL',
         )
 
+        drop_checks_referencing(cursor, 'experiment_configs', ['alpha'])
         rename_column_if_exists(
             cursor,
             'experiment_configs',
@@ -123,6 +125,7 @@ def cleanup_legacy_columns(apps, schema_editor):
             'double precision NOT NULL',
         )
 
+        drop_checks_referencing(cursor, 'api_ampcrecommendation', ['bias_correction', 'bias_window_count'])
         drop_column_if_exists(cursor, 'api_ampcrecommendation', 'bias_correction')
         rename_column_if_exists(
             cursor,
