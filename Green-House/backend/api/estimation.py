@@ -11,7 +11,7 @@ from kalman.filter import AdaptiveKalmanCycle, KalmanConfig, KalmanState
 from kalman.ingestion import ProcessedRecord, RawRecord, ValidationResult, preprocess_single, validate_live_record
 from kalman.prediction import ARXPredictionAdapter
 
-from .models import DeviceState, EstimationCycle, Greenhouse, SensorData
+from .models import DeviceState, EstimationCycle, SensorData
 
 HISTORY_LIMIT = 12
 SENSOR_FIELDS = ('soil_moisture', 'temperature', 'humidity', 'light')
@@ -96,18 +96,18 @@ def _processed_cycle(cycle: EstimationCycle) -> ProcessedRecord:
     return preprocess_single(raw, validation)
 
 
-def _cycle_query(greenhouse: Greenhouse, source_type: str):
-    return EstimationCycle.objects.filter(greenhouse=greenhouse, source_type=source_type)
+def _cycle_query(owner, source_type: str):
+    return EstimationCycle.objects.filter(owner=owner, source_type=source_type)
 
 
 def _build_estimator(
     initial_soil: float | None,
-    greenhouse: Greenhouse,
+    owner,
     source_type: str,
 ) -> tuple[AdaptiveKalmanCycle, int]:
     adapter = _arx_adapter() if source_type == 'live' else None
     estimator = AdaptiveKalmanCycle(_kalman_config(initial_soil), adapter=adapter)
-    cycles = _cycle_query(greenhouse, source_type)
+    cycles = _cycle_query(owner, source_type)
     latest = cycles.order_by('-cycle_index', '-id').first()
     cycle_index = latest.cycle_index + 1 if latest else 0
 
@@ -136,11 +136,11 @@ def _build_estimator(
 
 def _create_cycle(
     raw: RawRecord,
-    greenhouse: Greenhouse,
+    owner,
     dedupe_key: str,
     source_type: str,
 ) -> EstimationCycle:
-    estimator, cycle_index = _build_estimator(raw.soil_moisture, greenhouse, source_type)
+    estimator, cycle_index = _build_estimator(raw.soil_moisture, owner, source_type)
     raw = replace(raw, row_index=cycle_index)
     validation = validate_live_record(raw)
     result = estimator.step(preprocess_single(raw, validation), cycle_index=cycle_index)
@@ -158,7 +158,7 @@ def _create_cycle(
     return EstimationCycle.objects.create(
         sample_ts=result.timestamp,
         cycle_index=result.cycle_index,
-        greenhouse=greenhouse,
+        owner=owner,
         slice_type='online',
         source_type=source_type,
         validation_status=validation.status,
@@ -181,17 +181,17 @@ def _create_cycle(
 
 
 def ensure_estimation_for_reading(reading: SensorData) -> EstimationCycle:
-    greenhouse = reading.greenhouse
-    if greenhouse is None:
-        raise ValueError('sensor reading must belong to a greenhouse')
-    dedupe_key = f'live|sensor:{greenhouse.pk}|{reading.recorded_at.astimezone().isoformat()}'
-    existing = _cycle_query(greenhouse, 'live').filter(ingest_dedupe_key=dedupe_key).first()
-    return existing or _create_cycle(_raw_from_reading(reading), greenhouse, dedupe_key, 'live')
+    owner = reading.owner
+    if owner is None:
+        raise ValueError('sensor reading must belong to an owner')
+    dedupe_key = f'live|sensor:{owner.pk}|{reading.recorded_at.astimezone().isoformat()}'
+    existing = _cycle_query(owner, 'live').filter(ingest_dedupe_key=dedupe_key).first()
+    return existing or _create_cycle(_raw_from_reading(reading), owner, dedupe_key, 'live')
 
 
 def ensure_recent_window_estimations(
     *,
-    greenhouse: Greenhouse,
+    owner,
     step_seconds: int,
     horizon_steps: int,
     end_time: datetime,
@@ -204,7 +204,7 @@ def ensure_recent_window_estimations(
     for index in range(horizon_steps, 0, -1):
         window_end = aligned_end - timedelta(seconds=step_seconds * (index - 1))
         latest = ensure_estimation_for_sensor_window(
-            greenhouse=greenhouse,
+            owner=owner,
             window_start=window_end - timedelta(seconds=step_seconds),
             window_end=window_end,
             step_seconds=step_seconds,
@@ -214,7 +214,7 @@ def ensure_recent_window_estimations(
 
 def ensure_estimation_for_sensor_window(
     *,
-    greenhouse: Greenhouse,
+    owner,
     window_start: datetime,
     window_end: datetime,
     step_seconds: int,
@@ -222,16 +222,16 @@ def ensure_estimation_for_sensor_window(
     if window_end <= window_start:
         raise ValueError('window_end must be after window_start')
     dedupe_key = (
-        f'window|sensor:{greenhouse.pk}|{step_seconds}|'
+        f'window|sensor:{owner.pk}|{step_seconds}|'
         f'{window_start.astimezone().isoformat()}|{window_end.astimezone().isoformat()}'
     )
-    existing = _cycle_query(greenhouse, 'live_window').filter(ingest_dedupe_key=dedupe_key).first()
+    existing = _cycle_query(owner, 'live_window').filter(ingest_dedupe_key=dedupe_key).first()
     if existing is not None:
         return existing
 
     readings = list(
         SensorData.objects
-        .filter(greenhouse=greenhouse, recorded_at__gt=window_start, recorded_at__lte=window_end)
+        .filter(owner=owner, recorded_at__gt=window_start, recorded_at__lte=window_end)
         .order_by('recorded_at', 'id')
     )
     if not readings:
@@ -240,7 +240,7 @@ def ensure_estimation_for_sensor_window(
     values = {field: _average(readings, field) for field in SENSOR_FIELDS}
     flags = {name: _average_flag(readings, direct, state) for name, direct, state in DEVICE_FLAGS}
     raw = RawRecord(timestamp=window_end, row_index=0, **values, **flags)
-    return _create_cycle(raw, greenhouse, dedupe_key, 'live_window')
+    return _create_cycle(raw, owner, dedupe_key, 'live_window')
 
 
 def _aligned_end(value: datetime, step_seconds: int) -> datetime:
@@ -274,8 +274,8 @@ def _truthy(value) -> bool:
     return str(value).strip().lower() in {'1', 'true', 'on', 'yes'}
 
 
-def latest_estimation(*, greenhouse: Greenhouse | None = None) -> EstimationCycle | None:
+def latest_estimation(*, owner=None) -> EstimationCycle | None:
     queryset = EstimationCycle.objects.exclude(kf_x_posterior__isnull=True)
-    if greenhouse is not None:
-        queryset = queryset.filter(greenhouse=greenhouse)
+    if owner is not None:
+        queryset = queryset.filter(owner=owner)
     return queryset.order_by('-sample_ts', '-id').first()

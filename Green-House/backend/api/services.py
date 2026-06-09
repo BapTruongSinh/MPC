@@ -7,11 +7,12 @@ import requests
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from rest_framework.exceptions import ValidationError
 
-from .models import Alert, ControlState, DeviceCommand, DeviceState, EstimationCycle, Greenhouse, SensorData
+from .models import Alert, ControlState, DeviceCommand, DeviceState, EstimationCycle, SensorData
 from .serializers import (
     COMMAND_STATUS_VALUES,
     DEVICE_COMMAND_TEXT_MAX_LENGTH,
@@ -21,7 +22,7 @@ from .serializers import (
     validate_json_finite,
     validate_sensor_numeric_fields,
 )
-from .user_resources import default_owner, ensure_user_greenhouse_config
+from .user_resources import default_owner
 
 # ── Hằng số heartbeat (kiểm tra bằng RAM, không cần DB Device) ──
 HEARTBEAT_TIMEOUT_SECONDS = 15
@@ -33,19 +34,18 @@ AUTO_COMMAND_SOURCES = {'mpc', 'target_band_auto'}
 _esp32_last_seen: dict[str, object] = {}  # device_code -> datetime
 
 
-def default_ingest_greenhouse() -> Greenhouse:
-    greenhouse, _ = ensure_user_greenhouse_config(default_owner())
-    return greenhouse
+def default_ingest_owner():
+    return default_owner()
 
 
-def ingest_greenhouse(payload: dict) -> Greenhouse:
-    greenhouse_id = payload.get('greenhouse_id')
-    if greenhouse_id in (None, ''):
-        return default_ingest_greenhouse()
+def ingest_owner(payload: dict):
+    owner_id = payload.get('owner_id') or payload.get('admin_id') or payload.get('user_id')
+    if owner_id in (None, ''):
+        return default_ingest_owner()
     try:
-        return Greenhouse.objects.get(pk=int(greenhouse_id))
-    except (TypeError, ValueError, Greenhouse.DoesNotExist) as exc:
-        raise ValidationError({'greenhouse_id': 'greenhouse_id does not exist'}) from exc
+        return get_user_model().objects.get(pk=int(owner_id))
+    except (TypeError, ValueError, get_user_model().DoesNotExist) as exc:
+        raise ValidationError({'owner_id': 'owner_id does not exist'}) from exc
 
 
 def _clean_limited_text(field: str, value, max_length: int) -> str:
@@ -81,11 +81,11 @@ def _to_bool(value):
     return str(value).strip().lower() in {'1', 'true', 'on', 'yes'}
 
 
-def _delete_stale_window_estimations(greenhouse: Greenhouse, recorded_at):
+def _delete_stale_window_estimations(owner, recorded_at):
     """Drop cached control-step buckets that may include this raw reading."""
     window_seconds = 24 * 60 * 60
     EstimationCycle.objects.filter(
-        greenhouse=greenhouse,
+        owner=owner,
         source_type='live_window',
         sample_ts__gte=recorded_at,
         sample_ts__lte=recorded_at + timedelta(seconds=window_seconds),
@@ -381,7 +381,7 @@ def check_environmental_alerts(payload: dict, device_code: str = 'esp32-main'):
 
 def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
     validate_sensor_numeric_fields(payload)
-    greenhouse = ingest_greenhouse(payload)
+    owner = ingest_owner(payload)
     sensor_payload = validate_json_finite(payload.get('payload') or {}, 'payload')
     metadata = validate_json_finite(payload.get('metadata') or {}, 'metadata')
     sensor_errors = _clean_sensor_errors(payload.get('sensor_errors'))
@@ -411,16 +411,16 @@ def ingest_sensor_payload(payload: dict, device_code: str = 'esp32-main'):
     recorded_at = recorded_at or timezone.now()
 
     if _to_bool(payload.get('overwrite')):
-        SensorData.objects.filter(greenhouse=greenhouse, recorded_at=recorded_at).delete()
+        SensorData.objects.filter(owner=owner, recorded_at=recorded_at).delete()
         EstimationCycle.objects.filter(
-            greenhouse=greenhouse,
+            owner=owner,
             sample_ts=recorded_at,
             source_type='live',
         ).delete()
-        _delete_stale_window_estimations(greenhouse, recorded_at)
+        _delete_stale_window_estimations(owner, recorded_at)
 
     reading = SensorData.objects.create(
-        greenhouse=greenhouse,
+        owner=owner,
         temperature=payload.get('temperature'),
         humidity=payload.get('humidity'),
         light=payload.get('light'),

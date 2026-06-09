@@ -2,31 +2,35 @@ from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 
-from .models import Greenhouse, GreenhouseControlProfile
-
-
-DEFAULT_GREENHOUSE_NAME = 'Main greenhouse'
+from .models import GreenhouseControlProfile
 
 
 def default_owner():
-    owner = get_user_model().objects.order_by('id').first()
+    user_model = get_user_model()
+    owner = user_model.objects.filter(username='admin').order_by('-is_superuser', 'id').first()
     if owner is not None:
         return owner
 
-    owner = get_user_model().objects.create_user(username='system-greenhouse')
+    owner = user_model.objects.filter(is_superuser=True).order_by('id').first()
+    if owner is not None:
+        return owner
+
+    owner = user_model.objects.order_by('id').first()
+    if owner is not None:
+        return owner
+
+    owner = user_model.objects.create_user(username='admin')
     owner.set_unusable_password()
     owner.save(update_fields=['password'])
     return owner
 
 
-def ensure_user_greenhouse_config(user) -> tuple[Greenhouse, GreenhouseControlProfile]:
-    greenhouse, _ = Greenhouse.objects.get_or_create(
+def control_owner(user=None):
+    return user if getattr(user, 'is_authenticated', False) else default_owner()
+
+
+def ensure_user_control_profile(user) -> GreenhouseControlProfile:
+    return GreenhouseControlProfile.objects.get_or_create(
         owner=user,
-        name=DEFAULT_GREENHOUSE_NAME,
-        defaults={'is_active': True},
-    )
-    profile, _ = GreenhouseControlProfile.objects.get_or_create(
-        greenhouse=greenhouse,
-        defaults={'singleton_key': f'gh-{greenhouse.pk}'},
-    )
-    return greenhouse, profile
+        defaults={'singleton_key': f'user-{user.pk}'},
+    )[0]

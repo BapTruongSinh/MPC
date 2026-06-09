@@ -27,31 +27,6 @@ FAO56_SOIL_TYPE_CHOICES = [
 ]
 
 
-class Greenhouse(TimeStampedModel):
-    owner = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name='greenhouses',
-    )
-    name = models.CharField(max_length=120, default='Main greenhouse')
-    location = models.CharField(max_length=255, blank=True)
-    is_active = models.BooleanField(default=True)
-    notes = models.TextField(blank=True)
-
-    class Meta:
-        db_table = 'greenhouses'
-        ordering = ['id']
-        constraints = [
-            models.UniqueConstraint(
-                fields=['owner', 'name'],
-                name='uq_greenhouse_owner_name',
-            ),
-        ]
-
-    def __str__(self):
-        return f'{self.name}<{self.owner_id}>'
-
-
 # ── DeviceState: trạng thái realtime của từng thiết bị (không cần bảng Device) ──
 class DeviceState(TimeStampedModel):
     # device_code: ví dụ 'pump', 'fan', 'mist', 'light', 'esp32-main'
@@ -67,8 +42,8 @@ class DeviceState(TimeStampedModel):
 
 
 class SensorData(TimeStampedModel):
-    greenhouse = models.ForeignKey(
-        Greenhouse,
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -110,8 +85,8 @@ class EstimationCycle(TimeStampedModel):
 
     sample_ts = models.DateTimeField(db_index=True)
     cycle_index = models.PositiveIntegerField(db_index=True)
-    greenhouse = models.ForeignKey(
-        Greenhouse,
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,
@@ -211,10 +186,8 @@ class AMPCSchedulerState(TimeStampedModel):
 
 class GreenhouseControlProfile(TimeStampedModel):
     singleton_key = models.CharField(max_length=20, unique=True, default='main')
-    greenhouse = models.OneToOneField(
-        Greenhouse,
-        null=True,
-        blank=True,
+    owner = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='control_profile',
         db_constraint=False,
@@ -272,7 +245,7 @@ class GreenhouseControlProfile(TimeStampedModel):
         return bool(self.actuator_enabled and self.actuator_url)
 
     def __str__(self):
-        return f'GreenhouseControlProfile<{self.greenhouse_id or self.singleton_key}>'
+        return f'GreenhouseControlProfile<{self.owner_id or self.singleton_key}>'
 
 
 class Alert(TimeStampedModel):
@@ -349,8 +322,8 @@ class AMPCRecommendation(TimeStampedModel):
         on_delete=models.SET_NULL,
         related_name='ampc_recommendations',
     )
-    greenhouse = models.ForeignKey(
-        Greenhouse,
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
         null=True,
         blank=True,
         on_delete=models.SET_NULL,

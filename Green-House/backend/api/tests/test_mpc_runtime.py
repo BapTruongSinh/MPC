@@ -7,18 +7,19 @@ from django.utils import timezone
 
 from mpc.core.types import Recommendation
 
-from api.ampc import default_greenhouse, run_auto_recommendation
+from api.ampc import run_auto_recommendation
 from api.et0 import ET0Reading, OpenMeteoError
 from api.models import AMPCRecommendation, EstimationCycle
+from api.user_resources import ensure_user_control_profile
 
 
 class MpcRuntimeTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='mpc-runtime', password='pw')
-        self.greenhouse = default_greenhouse(self.user)
+        ensure_user_control_profile(self.user)
         self.sample_ts = timezone.now() - timedelta(seconds=5)
         self.estimation = EstimationCycle.objects.create(
-            greenhouse=self.greenhouse,
+            owner=self.user,
             sample_ts=self.sample_ts,
             cycle_index=1,
             source_type='live_window',

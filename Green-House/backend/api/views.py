@@ -45,8 +45,8 @@ from .serializers import (
     SensorDataSerializer,
 )
 from .ampc import (
-    default_greenhouse,
-    get_greenhouse_control_profile,
+    default_control_owner,
+    get_control_profile,
     latest_recommendation,
     run_auto_recommendation,
 )
@@ -197,11 +197,11 @@ class SetupView(APIView):
 
 class DashboardOverviewView(APIView):
     def get(self, request):
-        greenhouse = default_greenhouse(request.user)
+        owner = default_control_owner(request.user)
         esp32_online = is_esp32_online()
         latest = (
             SensorData.objects
-            .filter(greenhouse=greenhouse)
+            .filter(owner=owner)
             .order_by('-recorded_at', '-id')
             .first()
             if esp32_online
@@ -227,10 +227,10 @@ class LatestReadingView(APIView):
     def get(self, request):
         if not is_esp32_online():
             return Response(None)
-        greenhouse = default_greenhouse(request.user)
+        owner = default_control_owner(request.user)
         latest = (
             SensorData.objects
-            .filter(greenhouse=greenhouse)
+            .filter(owner=owner)
             .order_by('-recorded_at', '-id')
             .first()
         )
@@ -250,13 +250,13 @@ class ChartView(APIView):
         if not is_esp32_online():
             return Response({'metric': metric, 'points': []})
 
-        greenhouse = default_greenhouse(request.user)
+        owner = default_control_owner(request.user)
         since = timezone.now() - timedelta(hours=hours)
         points = []
 
         for item in (
             SensorData.objects
-            .filter(greenhouse=greenhouse, recorded_at__gte=since)
+            .filter(owner=owner, recorded_at__gte=since)
             .order_by('recorded_at', 'id')
         ):
             value = getattr(item, metric, None)
@@ -267,11 +267,11 @@ class ChartView(APIView):
 
 class SensorHistoryView(APIView):
     def get(self, request):
-        greenhouse = default_greenhouse(request.user)
+        owner = default_control_owner(request.user)
         page = _query_int(request, 'page', 1, min_value=1, max_value=1_000_000)
         page_size = _query_int(request, 'page_size', 20, min_value=5, max_value=100)
 
-        queryset = SensorData.objects.filter(greenhouse=greenhouse).order_by('-recorded_at', '-id')
+        queryset = SensorData.objects.filter(owner=owner).order_by('-recorded_at', '-id')
 
         hours_raw = request.query_params.get('hours')
         date_from_raw = request.query_params.get('date_from')
@@ -359,7 +359,7 @@ def _forecast_history_from_cycle(cycle: EstimationCycle) -> dict:
     }
 
 
-def _sampled_sensor_history_rows(greenhouse, rec, latest_sensor):
+def _sampled_sensor_history_rows(owner, rec, latest_sensor):
     if latest_sensor is None:
         return []
 
@@ -374,7 +374,7 @@ def _sampled_sensor_history_rows(greenhouse, rec, latest_sensor):
         reading = (
             SensorData.objects
             .filter(
-                greenhouse=greenhouse,
+                owner=owner,
                 recorded_at__gt=window_start,
                 recorded_at__lte=target_ts,
             )
@@ -386,14 +386,14 @@ def _sampled_sensor_history_rows(greenhouse, rec, latest_sensor):
     return rows
 
 
-def _forecast_history_rows(greenhouse, rec):
+def _forecast_history_rows(owner, rec):
     latest_sensor = (
         SensorData.objects
-        .filter(greenhouse=greenhouse)
+        .filter(owner=owner)
         .order_by('-recorded_at', '-id')
         .first()
     )
-    sensor_rows = _sampled_sensor_history_rows(greenhouse, rec, latest_sensor)
+    sensor_rows = _sampled_sensor_history_rows(owner, rec, latest_sensor)
     if sensor_rows:
         return sensor_rows
 
@@ -402,7 +402,7 @@ def _forecast_history_rows(greenhouse, rec):
         cycles = (
             EstimationCycle.objects
             .filter(
-                greenhouse=greenhouse,
+                owner=owner,
                 source_type='live_window',
                 sample_ts__lte=anchor.sample_ts,
             )
@@ -416,7 +416,7 @@ def _forecast_history_rows(greenhouse, rec):
 
     history_rows = (
         SensorData.objects
-        .filter(greenhouse=greenhouse)
+        .filter(owner=owner)
         .order_by('-recorded_at', '-id')[:6]
     )
     return [SensorDataSerializer(item).data for item in reversed(list(history_rows))]
@@ -424,14 +424,14 @@ def _forecast_history_rows(greenhouse, rec):
 
 class ForecastView(APIView):
     def get(self, request):
-        greenhouse = default_greenhouse(request.user)
-        estimation = latest_estimation(greenhouse=greenhouse)
-        rec = latest_recommendation(greenhouse=greenhouse)
+        owner = default_control_owner(request.user)
+        estimation = latest_estimation(owner=owner)
+        rec = latest_recommendation(owner=owner)
         scheduler_state = get_scheduler_state()
 
         latest_sensor = (
             SensorData.objects
-            .filter(greenhouse=greenhouse)
+            .filter(owner=owner)
             .order_by('-recorded_at', '-id')
             .first()
         )
@@ -441,17 +441,17 @@ class ForecastView(APIView):
             'estimation': EstimationCycleSerializer(estimation).data if estimation else None,
             'recommendation': AMPCRecommendationSerializer(rec).data if rec else None,
             'scheduler': AMPCSchedulerStateSerializer(scheduler_state).data,
-            'history': _forecast_history_rows(greenhouse, rec),
+            'history': _forecast_history_rows(owner, rec),
         })
 
 
 class AutoSettingsView(APIView):
     def get(self, request):
-        profile = get_greenhouse_control_profile(request.user)
+        profile = get_control_profile(request.user)
         return Response(_legacy_auto_settings_payload(profile))
 
     def patch(self, request):
-        profile = get_greenhouse_control_profile(request.user)
+        profile = get_control_profile(request.user)
         serializer = GreenhouseControlProfileSerializer(
             profile,
             data=_legacy_auto_settings_patch(request.data),
@@ -491,13 +491,13 @@ class AMPCSchedulerStopView(APIView):
 
 
 class ControlProfileView(APIView):
-    """Endpoint de xem/sua cau hinh dieu khien theo greenhouse cua user."""
+    """Endpoint de xem/sua cau hinh dieu khien theo user."""
     def get(self, request):
-        profile = get_greenhouse_control_profile(request.user)
+        profile = get_control_profile(request.user)
         return Response(GreenhouseControlProfileSerializer(profile).data)
 
     def patch(self, request):
-        profile = get_greenhouse_control_profile(request.user)
+        profile = get_control_profile(request.user)
         serializer = GreenhouseControlProfileSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
@@ -506,8 +506,8 @@ class ControlProfileView(APIView):
 
 class AMPCLatestRecommendationView(APIView):
     def get(self, request):
-        greenhouse = default_greenhouse(request.user)
-        rec = latest_recommendation(greenhouse=greenhouse)
+        owner = default_control_owner(request.user)
+        rec = latest_recommendation(owner=owner)
         if rec is None:
             return Response({'detail': 'recommendation_not_found'}, status=status.HTTP_404_NOT_FOUND)
         return Response(LegacyAMPCRecommendationSerializer(rec).data)
@@ -669,16 +669,16 @@ class ESP32ThresholdView(APIView):
     """GET / PATCH ngưỡng điều khiển tự động cho ESP32."""
 
     def get(self, request):
-        from .ampc import get_greenhouse_control_profile
-        profile = get_greenhouse_control_profile(request.user)
+        from .ampc import get_control_profile
+        profile = get_control_profile(request.user)
         return Response(ESP32ThresholdSerializer(profile).data)
 
     def patch(self, request):
-        from .ampc import get_greenhouse_control_profile
+        from .ampc import get_control_profile
         from channels.layers import get_channel_layer
         from asgiref.sync import async_to_sync
 
-        profile = get_greenhouse_control_profile(request.user)
+        profile = get_control_profile(request.user)
         serializer = ESP32ThresholdSerializer(profile, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         profile = serializer.save()
