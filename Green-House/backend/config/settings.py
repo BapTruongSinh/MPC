@@ -135,3 +135,18 @@ CHANNEL_LAYERS = {
         'BACKEND': 'channels.layers.InMemoryChannelLayer',
     }
 }
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'filters': {
+        'suppress_forecast_access': {
+            '()': 'api.logging_filters.SuppressForecastAccessLog',
+        },
+    },
+    'loggers': {
+        'django.channels.server': {
+            'filters': ['suppress_forecast_access'],
+        },
+    },
+}
