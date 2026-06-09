@@ -9,7 +9,7 @@ from mpc.core.types import Recommendation
 
 from api.ampc import run_auto_recommendation
 from api.et0 import ET0Reading, OpenMeteoError
-from api.models import AMPCRecommendation, EstimationCycle
+from api.models import AMPCRecommendation, ControlState, DeviceCommand, EstimationCycle
 from api.user_resources import ensure_user_control_profile
 
 
@@ -79,3 +79,43 @@ class MpcRuntimeTests(TestCase):
         self.assertEqual(audit.pump_seconds, 0.0)
         self.assertFalse(audit.command_created)
         self.assertEqual(AMPCRecommendation.objects.count(), 1)
+
+    def test_mpc_pump_command_duration_is_integer_seconds(self):
+        profile = ensure_user_control_profile(self.user)
+        profile.actuator_enabled = True
+        profile.save(update_fields=['actuator_enabled', 'updated_at'])
+        ControlState.objects.update_or_create(
+            singleton_key='main',
+            defaults={'mode': ControlState.Mode.AUTO},
+        )
+        et0 = ET0Reading(
+            requested_hour=self.sample_ts.replace(minute=0, second=0, microsecond=0),
+            et0_hour_mm=0.6,
+            et0_step_mm=0.01,
+            step_seconds=50,
+        )
+        recommendation = Recommendation(
+            pump_seconds=4.148,
+            step_seconds=50,
+            predicted_soil_moisture=(54.0,),
+            target_band={'low': 55.0, 'high': 65.0},
+            cost=1.0,
+            safety_status='safe',
+            reason='above_raw_stress',
+        )
+
+        with (
+            patch('api.ampc.ensure_recent_window_estimations', return_value=self.estimation),
+            patch('api.ampc.get_hourly_et0', return_value=et0),
+            patch('api.ampc.ScipyMpcSolver') as solver,
+            patch('api.ampc.notify_pending_commands'),
+        ):
+            solver.return_value.recommend.return_value = recommendation
+            audit = run_auto_recommendation(user=self.user)
+
+        cmd = DeviceCommand.objects.get(pk=audit.device_command_id)
+        self.assertTrue(audit.command_created)
+        self.assertEqual(cmd.value, 'on')
+        self.assertEqual(cmd.payload['source'], 'mpc')
+        self.assertEqual(cmd.payload['duration'], 5)
+        self.assertIsInstance(cmd.payload['duration'], int)

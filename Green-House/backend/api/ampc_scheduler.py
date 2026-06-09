@@ -88,19 +88,10 @@ def _state_filter(state_id: int | None) -> dict:
 
 
 def _run_recommendations() -> tuple[str, str]:
-    owners = list(
-        GreenhouseControlProfile.objects
-        .exclude(owner__isnull=True)
-        .select_related('owner')
-        .order_by('owner_id')
-    )
-    if not owners:
-        owner = default_owner()
-        ensure_user_control_profile(owner)
-        owners = [ensure_user_control_profile(owner)]
+    owner = default_owner()
+    ensure_user_control_profile(owner)
     recommendations = [
-        run_auto_recommendation(create_command_if_auto=True, owner=profile.owner)
-        for profile in owners
+        run_auto_recommendation(create_command_if_auto=True, owner=owner)
     ]
     unsafe = [item for item in recommendations if item.safety_status != 'safe']
     if not unsafe:
