@@ -107,7 +107,7 @@ def score_fao56_trajectory(
             raise ValueError("pump_seconds must be finite")
         if pump < 0.0:
             raise ValueError("pump_seconds must be >= 0")
-
+        # cập nhật dr sau 1 bước thời gian
         step = advance_depletion_mm(
             depletion_mm=current_dr,
             et0_hour_mm=config.fao56.et0_hour_mm,
@@ -115,6 +115,8 @@ def score_fao56_trajectory(
             step_seconds=config.step_seconds,
             config=config.fao56,
         )
+        
+        # đổi từ dr sang % độ ẩm
         forecast_sensor = calibrated_sensor_percent_from_depletion_mm(
             step.depletion_next_mm,
             config.fao56,

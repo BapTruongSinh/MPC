@@ -133,7 +133,7 @@ def run_due_once(*, force: bool = False, state_id: int | None = None) -> AMPCSch
 
     try:
         status, error = _run_recommendations()
-    except Exception as exc:  # pragma: no cover
+    except Exception as exc: 
         logger.exception('MPC scheduler run failed')
         status, error = 'error', str(exc)
     return _finish_run(state, status=status, error=error)

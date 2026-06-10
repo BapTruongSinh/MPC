@@ -179,7 +179,7 @@ def _create_cycle(
         **kalman,
     )
 
-# copy db
+# copy db + tạo
 def ensure_estimation_for_reading(reading: SensorData) -> EstimationCycle:
     owner = reading.owner
     if owner is None:
@@ -188,7 +188,7 @@ def ensure_estimation_for_reading(reading: SensorData) -> EstimationCycle:
     existing = _cycle_query(owner, 'live').filter(ingest_dedupe_key=dedupe_key).first()
     return existing or _create_cycle(_raw_from_reading(reading), owner, dedupe_key, 'live')
 
-# gộp
+# gộp data
 def ensure_recent_window_estimations(
     *,
     owner,
@@ -211,7 +211,7 @@ def ensure_recent_window_estimations(
         ) or latest
     return latest
 
-
+# gộp data cho mpc
 def ensure_estimation_for_sensor_window(
     *,
     owner,
