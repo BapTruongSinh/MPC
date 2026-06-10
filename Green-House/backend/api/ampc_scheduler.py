@@ -76,7 +76,7 @@ def _execution_is_stale(state: AMPCSchedulerState, now) -> bool:
     interval = max(state.interval_seconds or DEFAULT_INTERVAL_SECONDS, 1)
     return state.updated_at <= now - timedelta(seconds=interval * STALE_EXECUTION_FACTOR)
 
-
+# mpc có được chạy hay k
 def _should_run(state: AMPCSchedulerState, now, *, force: bool) -> bool:
     executing = state.is_executing and not _execution_is_stale(state, now)
     due = force or not state.next_run_at or state.next_run_at <= now

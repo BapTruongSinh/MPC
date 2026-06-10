@@ -85,14 +85,14 @@ def profile_snapshot(profile: GreenhouseControlProfile) -> dict:
     }
     return snapshot
 
-
+# lấy dự báo mới nhất của mpc trong db
 def latest_recommendation(*, owner=None) -> AMPCRecommendation | None:
     queryset = AMPCRecommendation.objects
     if owner is not None:
         queryset = queryset.filter(owner=owner)
     return queryset.order_by('-created_at', '-id').first()
 
-
+# nếu kalman có R quá lớn  ( 15 ) thì xài raw thay vì dữ liệu được arx dự báo
 def _uses_raw_fallback(cycle: EstimationCycle) -> bool:
     raw = cycle.raw_soil_moisture
     if raw is None:
@@ -104,7 +104,6 @@ def _uses_raw_fallback(cycle: EstimationCycle) -> bool:
     )
     uncertainty_too_high = cycle.kf_R is not None and float(cycle.kf_R) > MAX_TRUSTED_KALMAN_R
     return posterior_too_far or uncertainty_too_high
-
 
 def _latest_estimation(owner, config: ControllerConfig, now: datetime) -> EstimationCycle | None:
     estimation = ensure_recent_window_estimations(
@@ -118,7 +117,7 @@ def _latest_estimation(owner, config: ControllerConfig, now: datetime) -> Estima
     reading = SensorData.objects.filter(owner=owner).order_by('-recorded_at', '-id').first()
     return ensure_estimation_for_reading(reading) if reading is not None else None
 
-
+# đưa estimation thành State để đưa vào MPC
 def _controller_state(estimation: EstimationCycle, owner) -> ControllerState:
     previous = latest_recommendation(owner=owner)
     return ControllerState(
@@ -166,7 +165,7 @@ def _state_snapshot(
         }
     return snapshot
 
-
+# nếu lỗi thì chọn k bơm
 def _failure(config: ControllerConfig, status: str, reason: str) -> Recommendation:
     return Recommendation(
         pump_seconds=config.safety.fail_closed_pump_seconds,
@@ -223,7 +222,7 @@ def _persist(
         state_snapshot=_state_snapshot(estimation, state, recommendation, et0) if estimation and state else {},
     )
 
-
+# lưu kết quả mpc vào bảng MPCRecommendation
 def _persist_failure(
     profile: GreenhouseControlProfile,
     reason: str,
