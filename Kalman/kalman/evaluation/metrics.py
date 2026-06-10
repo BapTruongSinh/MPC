@@ -1,15 +1,3 @@
-"""
-Tính toán metric đánh giá thuần túy.
-
-Hàm nhận dict thường (từ QuerySet.values()), nên tầng tính toán không phụ thuộc
-Django hoặc DB và có thể unit test bằng dữ liệu giả.
-
-Ngưỡng chấp nhận ADR-003
-------------------------
-variance_reduction  >= 0.20  (20 %)
-rmse_ratio          <= 1.05
-mae_ratio           <= 1.05
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass
