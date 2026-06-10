@@ -9,7 +9,6 @@
 - `mpc.control.fao56`: FAO-56 water balance and sensor calibration.
 - `mpc.solver.cost`: FAO rollout and cost.
 - `mpc.solver.scipy_solver`: recommendation optimizer.
-- `mpc.control.closed_loop`: optional actuator wrapper.
 
 ## Runtime Integration
 

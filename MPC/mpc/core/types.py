@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
-
+"""Chứa dữ liệu đầu ra MPC
+safe:MPC chạy ổn, kết quả hợp lệ.
+pump_off_failsafe:hệ rơi vào chế độ an toàn, bơm 0 giây.
+config_error:config sai, ví dụ low/high không hợp lệ.
+stale_sample:dữ liệu sensor/Kalman quá cũ.
+model_error:lỗi mô hình FAO/MPC khi tính toán.
+solver_error:lỗi scipy solver, không tìm được nghiệm.
+actuator_error:lỗi khi gửi lệnh xuống thiết bị."""
 SafetyStatus = Literal[
     "safe",
     "pump_off_failsafe",

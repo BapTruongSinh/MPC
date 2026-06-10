@@ -1,5 +1,3 @@
-"""Deterministic scipy.optimize MPC recommendation solver."""
-
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -14,17 +12,11 @@ from mpc.solver.cost import Fao56Trajectory, score_fao56_trajectory
 
 
 class ScipyMpcSolver:
-    """Optimize a future pump sequence and execute only the first command.
-
-    Pump seconds are optimized as continuous decision variables with
-    scipy.optimize, then the first command is executed by receding horizon.
-    """
-
     _MAX_FUTURE_SKEW_SECONDS = 30.0
 
     def __init__(self, config: ControllerConfig | None = None) -> None:
         self.config = config or ControllerConfig()
-
+# đề xuất lệnh bơm
     def recommend(
         self,
         *,
@@ -55,7 +47,7 @@ class ScipyMpcSolver:
             reason=best.reason(),
             fao56=best.audit(),
         )
-
+# tìm chuỗi bơm tối ưu nhất
     def _solve(self, *, state: ControllerState) -> Fao56Trajectory:
         horizon = self.config.horizon_steps
         result = minimize(
@@ -79,7 +71,7 @@ class ScipyMpcSolver:
         try:
             sequence = tuple(self.config.pump.clamp(float(value)) for value in values)
             return self._score_sequence(state=state, sequence=sequence).cost.total
-        except Exception:  # noqa: BLE001
+        except Exception:
             return float("inf")
 
     def _score_sequence(
@@ -150,7 +142,7 @@ def recommend(
         now=now,
     )
 
-
+# tạo chuỗi cho scipy đoán
 def _initial_pump_guess(
     config: ControllerConfig,
     state: ControllerState,

@@ -26,7 +26,7 @@ def _device_flag(device_code: str) -> float:
     state = DeviceState.objects.filter(device_code=device_code).first()
     return float(bool(state and state.is_on))
 
-
+# hàm đọc dữ liệu từ bảng sensor thành raw record
 def _raw_from_reading(reading: SensorData) -> RawRecord:
     payload = reading.payload if isinstance(reading.payload, dict) else {}
 
@@ -54,7 +54,7 @@ def _raw_from_reading(reading: SensorData) -> RawRecord:
 def _load_arx(path: str) -> ARXPredictionAdapter:
     return ARXPredictionAdapter.load_artifact(Path(path))
 
-
+# lấy ARX model 
 def _arx_adapter() -> ARXPredictionAdapter | None:
     path = str(getattr(settings, 'ARX_MODEL_PATH', ''))
     if not path:
@@ -64,7 +64,7 @@ def _arx_adapter() -> ARXPredictionAdapter | None:
     except Exception:
         return None
 
-
+# đọc config kalman
 def _kalman_config(initial_soil: float | None) -> KalmanConfig:
     return KalmanConfig(
         x0=initial_soil or 0.0,
@@ -75,7 +75,7 @@ def _kalman_config(initial_soil: float | None) -> KalmanConfig:
         forgetting_factor_b=float(getattr(settings, 'KALMAN_LIVE_FORGETTING_FACTOR_B', 0.95)),
     )
 
-
+# lấy dữ liệu thô
 def _processed_cycle(cycle: EstimationCycle) -> ProcessedRecord:
     raw = RawRecord(
         timestamp=cycle.sample_ts,
@@ -95,7 +95,7 @@ def _processed_cycle(cycle: EstimationCycle) -> ProcessedRecord:
     )
     return preprocess_single(raw, validation)
 
-
+# lấy dữ liệu đúng với owner
 def _cycle_query(owner, source_type: str):
     return EstimationCycle.objects.filter(owner=owner, source_type=source_type)
 
@@ -110,16 +110,16 @@ def _build_estimator(
     cycles = _cycle_query(owner, source_type)
     latest = cycles.order_by('-cycle_index', '-id').first()
     cycle_index = latest.cycle_index + 1 if latest else 0
-
+# Lấy kết quả độ ẩm sau lọc của vòng trước 
     if latest and all(value is not None for value in (latest.kf_x_posterior, latest.kf_P_posterior, latest.kf_R)):
         config = estimator.config
-        estimator._state = KalmanState(  # noqa: SLF001
+        estimator._state = KalmanState( 
             x_post=float(latest.kf_x_posterior),
             P_post=float(latest.kf_P_posterior),
             R=max(config.R_min, min(config.R_max, float(latest.kf_R))),
             step=cycle_index,
         )
-
+# lấy ra 96 mẫu cho arx
     history_limit = max(getattr(adapter, 'min_history_len', 0), HISTORY_LIMIT)
     history = (
         cycles
@@ -179,7 +179,7 @@ def _create_cycle(
         **kalman,
     )
 
-
+# copy db
 def ensure_estimation_for_reading(reading: SensorData) -> EstimationCycle:
     owner = reading.owner
     if owner is None:
@@ -188,7 +188,7 @@ def ensure_estimation_for_reading(reading: SensorData) -> EstimationCycle:
     existing = _cycle_query(owner, 'live').filter(ingest_dedupe_key=dedupe_key).first()
     return existing or _create_cycle(_raw_from_reading(reading), owner, dedupe_key, 'live')
 
-
+# gộp
 def ensure_recent_window_estimations(
     *,
     owner,

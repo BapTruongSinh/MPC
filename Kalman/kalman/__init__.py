@@ -5,5 +5,4 @@ __all__ = [
     "filter",
     "ingestion",
     "prediction",
-    "run_config",
 ]

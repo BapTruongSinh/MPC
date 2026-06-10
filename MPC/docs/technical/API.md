@@ -121,12 +121,3 @@ J = J_tracking + J_control + J_resource
 
 `predicted_soil_moisture` is the FAO rollout converted back to sensor percent
 for dashboard display. `fao56.predicted_dr` is the physical depletion trace.
-
-## Closed Loop
-
-`run_closed_loop()` combines solver output with actuator safety:
-
-- unsafe recommendation -> pump command is forced to `0s`
-- actuator disabled/misconfigured -> no HTTP command is sent
-- HTTP actuator failure -> fail-closed actuator result
-- bearer token value is read from env and never returned in output

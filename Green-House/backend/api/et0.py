@@ -27,7 +27,7 @@ class ET0Reading:
     et0_step_mm: float
     step_seconds: int
 
-
+# lấy et0 rồi đổi sang et0 theo step
 def get_hourly_et0(
     when: datetime,
     *,

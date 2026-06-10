@@ -4,8 +4,6 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 
 import numpy as np
-
-# ── Ngưỡng chấp nhận ADR-003 ─────────────────────────────────────────────────
 VARIANCE_REDUCTION_MIN: float = 0.20
 RMSE_RATIO_MAX: float = 1.05
 MAE_RATIO_MAX: float = 1.05

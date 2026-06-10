@@ -1,5 +1,3 @@
-"""Controller configuration contracts for MPC v2/v3."""
-
 from __future__ import annotations
 
 import json
@@ -20,7 +18,7 @@ def _require_finite(name: str, value: float) -> None:
     if not isfinite(value):
         raise ValueError(f"{name} must be finite, got {value!r}")
 
-
+# độ ẩm mặc định
 @dataclass(frozen=True)
 class TargetBand:
     low: float = 55.0
@@ -34,7 +32,7 @@ class TargetBand:
                 "target band must satisfy 0 <= low < high <= 100"
             )
 
-
+# thời gian bơm mặc định
 @dataclass(frozen=True)
 class PumpLimits:
     min_seconds: float = 0.0
@@ -54,13 +52,13 @@ class PumpLimits:
     def clamp(self, pump_seconds: float) -> float:
         _require_finite("pump_seconds", pump_seconds)
         return min(max(pump_seconds, self.min_seconds), self.max_seconds)
-
+# chí phí phạt mặc định
 @dataclass(frozen=True)
 class CostWeights:
-    band_violation: float = 10.0
-    terminal_band_violation: float = 20.0
-    water_use: float = 0.2
-    switching: float = 0.5
+    band_violation: float = 10.0 # phạt đất quá khô hay ẩm
+    terminal_band_violation: float = 20.0 # phạt trạng thái cuối đk
+    water_use: float = 0.2 # phạt lượng nước dùng
+    switching: float = 0.5 # phạt bật tắt bơm
 
     def __post_init__(self) -> None:
         for name, value in (
@@ -77,9 +75,9 @@ class CostWeights:
 @dataclass(frozen=True)
 class SafetyConfig:
     state_min: float = 0.0
-    state_max: float = 100.0
-    stale_after_seconds: int = 600
-    fail_closed_pump_seconds: float = 0.0
+    state_max: float = 100.0 # khoảng độ ẩm an toàn
+    stale_after_seconds: int = 600 # thời gian tối đa cho phép không có dữ liệu mới
+    fail_closed_pump_seconds: float = 0.0 # nếu có lỗi thì lệnh bơm = 0
 
     def __post_init__(self) -> None:
         _require_finite("safety.state_min", self.state_min)
@@ -95,7 +93,7 @@ class SafetyConfig:
         if self.fail_closed_pump_seconds != 0.0:
             raise ValueError("fail-closed pump command must remain 0 seconds")
 
-
+# gữi lệnh bơm xuống esp
 @dataclass(frozen=True)
 class ActuatorConfig:
     enabled: bool = False

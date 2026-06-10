@@ -1,5 +1,3 @@
-"""ARX artifact adapter used as the Kalman prior predictor."""
-
 from __future__ import annotations
 
 import json
@@ -42,7 +40,8 @@ _DERIVED_COLUMNS = frozenset(
 )
 _DEFAULT_INPUT_COLS = ("Temperature", "Humidity", "Light", "Drip", "Mist", "Fan")
 
-
+# dùng để chuẩn hóa theo mean/std của file arx.json, vì dữ liệu có cái lớn cái nhỏ
+# không chuẩn hóa thì model tính toán biến số lớn dể ảnh hưởng mạnh hơn mà cái biến số đó k quan trọng
 @dataclass(frozen=True)
 class ScaleStat:
     mean: float
@@ -62,7 +61,7 @@ class ScaleStat:
         _require_finite(value, "scaled value")
         return value * self.std + self.mean
 
-
+# tạo config cần bao nhiêu mẫu trước đó để dự đoán ( na )
 @dataclass(frozen=True)
 class ARXArtifactConfig:
     na: int
@@ -127,7 +126,6 @@ class ARXArtifactConfig:
 
 
 class ARXPredictionAdapter(PredictionAdapter):
-    """Runtime-only ARX adapter. It loads a trained JSON artifact; it never trains."""
 
     _KIND = "arx"
 
@@ -150,7 +148,8 @@ class ARXPredictionAdapter(PredictionAdapter):
     @property
     def artifact_config(self) -> ARXArtifactConfig:
         return self._config
-
+    
+# dự đoán trước 1 bước từ history gần nhất.
     def predict(self, inp: PredictionInput) -> PredictionResult:
         history = inp.history or []
         if self._theta is None:
@@ -172,10 +171,10 @@ class ARXPredictionAdapter(PredictionAdapter):
                 status="ok",
                 model_kind=self._KIND,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.exception("ARX predict failed")
             return self._error(f"Prediction error: {exc}")
-
+# đọc file arx.json
     @classmethod
     def load_artifact(cls, path: Path) -> "ARXPredictionAdapter":
         if not path.exists():
@@ -187,11 +186,9 @@ class ARXPredictionAdapter(PredictionAdapter):
 
         if "spec" in data and "theta" in data:
             return cls._load_clean_5s_format(data)
-        if data.get("model") == "ARX" and "model_config" in data:
-            return cls._load_legacy_pipeline_format(data)
         raise ValueError(
             f"Unrecognised ARX artifact format in {path}: expected clean 5s "
-            "artifact with spec/theta or legacy model_config/theta_hat"
+            "artifact with spec/theta"
         )
 
     @classmethod
@@ -210,30 +207,13 @@ class ARXPredictionAdapter(PredictionAdapter):
         )
         return _adapter_from_theta(cls, config, data.get("theta"), "theta")
 
-    @classmethod
-    def _load_legacy_pipeline_format(cls, data: dict[str, Any]) -> "ARXPredictionAdapter":
-        top_config = _mapping(data.get("model_config"), "model_config")
-        best = data.get("best_candidate")
-        source = best if isinstance(best, dict) and "theta_hat" in best else data
-        source_config = _mapping(source.get("model_config", top_config), "model_config")
-        config = ARXArtifactConfig(
-            na=int(source_config["na"]),
-            nb=int(source_config["nb"]),
-            nk=int(source_config["nk"]),
-            include_intercept=bool(source_config.get("include_intercept", False)),
-            input_cols=tuple(source_config.get("input_cols", _DEFAULT_INPUT_COLS)),
-            output_col=str(source_config.get("output_col", "Soil_Moisture")),
-            sampling_seconds=int(source_config.get("sampling_seconds", 300)),
-        )
-        return _adapter_from_theta(cls, config, source.get("theta_hat"), "theta_hat")
-
     def _unavailable(self, reason: str) -> PredictionResult:
         return PredictionResult(None, "unavailable", self._KIND, reason)
 
     def _error(self, reason: str) -> PredictionResult:
         return PredictionResult(None, "error", self._KIND, reason)
 
-
+# tạo adapter từ theta đã đọc được
 def _adapter_from_theta(
     adapter_cls: type[ARXPredictionAdapter],
     config: ARXArtifactConfig,
@@ -251,10 +231,10 @@ def _adapter_from_theta(
     if not np.all(np.isfinite(theta)):
         raise ValueError(f"ARX {field_name} values must be finite")
     adapter = adapter_cls(config)
-    adapter._theta = theta  # noqa: SLF001
+    adapter._theta = theta 
     return adapter
 
-
+# tạo 1 mảng từ history nhân row với theta
 def _build_prediction_row(
     history: Sequence[ProcessedRecord],
     config: ARXArtifactConfig,
@@ -282,7 +262,7 @@ def _scaled(
         return value
     return config.scale[column].transform(value)
 
-
+# lấy giá trị của 1 cột input
 def _feature_value(column: str, record: ProcessedRecord, origin: datetime) -> float:
     raw = {
         name: _record_value(record, attr)
@@ -326,7 +306,7 @@ def _timestamp(record: ProcessedRecord) -> datetime:
         raise ValueError("record timestamp must be datetime")
     return timestamp
 
-
+# tính giá trị độ ẩm thật từ row nhân theta
 def _inverse_prediction(value: float, config: ARXArtifactConfig) -> float:
     prediction = value
     if config.clip_scaled is not None:
@@ -337,7 +317,7 @@ def _inverse_prediction(value: float, config: ARXArtifactConfig) -> float:
     _require_finite(prediction, "prediction")
     return prediction
 
-
+#ktra xem có cột độ ẩm nào bị none k
 def _missing_required_fields(
     history: Sequence[ProcessedRecord],
     config: ARXArtifactConfig,
@@ -356,7 +336,7 @@ def _missing_required_fields(
         }
     )
 
-
+# đọc scale 
 def _scale_stats(raw: object) -> dict[str, ScaleStat]:
     data = _mapping(raw, "scale")
     stats: dict[str, ScaleStat] = {}
@@ -368,7 +348,7 @@ def _scale_stats(raw: object) -> dict[str, ScaleStat]:
         )
     return stats
 
-
+#ktra
 def _clip_scaled(raw: object) -> tuple[float, float] | None:
     if raw is None:
         return None
@@ -376,13 +356,13 @@ def _clip_scaled(raw: object) -> tuple[float, float] | None:
         raise ValueError("clip_scaled must be [low, high]")
     return float(raw[0]), float(raw[1])
 
-
+#ktra
 def _mapping(value: object, field_name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"ARX artifact missing {field_name}")
     return value
 
-
+#ktra
 def _require_finite(value: float, field_name: str) -> None:
     if not isfinite(float(value)):
         raise ValueError(f"{field_name} must be finite")

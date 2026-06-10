@@ -1,8 +1,4 @@
 """
-``kalman.prediction``: prediction adapter contract and ARX artifact adapter.
-
-Public API
-----------
 ``PredictionInput``        — cửa sổ input truyền vào ``predict()``
 ``PredictionResult``       — kết quả có kiểu trả về từ ``predict()``
 ``PredictionAdapter``      — abstract base class cho mọi model dự đoán

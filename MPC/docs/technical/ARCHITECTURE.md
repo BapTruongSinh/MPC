@@ -9,7 +9,6 @@ Kalman posterior/raw sensor
   -> ControllerState
   -> ScipyMpcSolver.recommend(...)
   -> Recommendation
-  -> optional run_closed_loop actuator wrapper
 ```
 
 ## Package Layout
@@ -21,7 +20,6 @@ MPC/
       base.py
       http.py
     control/
-      closed_loop.py
       fao56.py
     core/
       config.py
@@ -40,7 +38,6 @@ MPC/
 - `mpc.control.fao56`: FAO-56 formulas and sensor target-band calibration.
 - `mpc.solver.cost`: FAO rollout and objective.
 - `mpc.solver.scipy_solver`: optimizer and fail-closed recommendation wrapper.
-- `mpc.control.closed_loop`: optional actuator command orchestration.
 - `mpc.actuator`: HTTP actuator adapter and output contracts.
 
 ## Design Rules

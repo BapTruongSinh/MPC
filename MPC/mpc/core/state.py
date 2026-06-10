@@ -1,5 +1,3 @@
-"""Controller state contracts used by the MPC solver."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,7 +5,15 @@ from datetime import datetime
 from math import isfinite
 from typing import Any, Mapping
 
-
+""" Chứa trạng thái nhà kính
+timestamp: thời điểm của mẫu dữ liệu hiện tại
+kf_x_posterior: độ ẩm đất sau lọc Kalman
+raw_soil_moisture:độ ẩm đất thô từ sensor
+temperature:nhiệt độ
+humidity:độ ẩm không khí
+light:ánh sáng
+last_pump_seconds:lệnh bơm lần trước
+"""
 MAX_TRUSTED_KALMAN_R = 15.0
 OPTIONAL_STATE_FIELDS = (
     "kf_x_posterior",
@@ -37,7 +43,6 @@ def _required_finite(value: float | int | None, field_name: str) -> float:
 
 @dataclass(frozen=True)
 class ControllerState:
-    """Latest controller state from Kalman/live payload."""
 
     timestamp: datetime
     kf_x_posterior: float | None = None

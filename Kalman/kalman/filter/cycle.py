@@ -1,21 +1,3 @@
-"""One-step adaptive Kalman filter for live soil-moisture estimation.
-
-Runtime equations, scalar H = 1:
-
-    x_prior = arx_prediction if available else previous posterior
-    P_prior = P_post + Q
-    e_k = z_k - x_prior
-    d_k = (1 - b) / (1 - b ** (k + 1))
-    R_k = clip((1 - d_k) * R_prev + d_k * (e_k ** 2 - P_prior), R_min, R_max)
-    K_k = P_prior / (P_prior + R_k)
-    x_post = x_prior + K_k * e_k
-    P_post = (1 - K_k) * P_prior
-
-Missing or skipped measurements carry the prior forward and leave R unchanged.
-``AdaptiveKalmanCycle.step()`` never raises; unexpected errors are returned as
-``CycleResult(cycle_status="error")``.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -31,18 +13,18 @@ logger = logging.getLogger(__name__)
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
-
+# trả về none nếu lỗi
 def _safe_getattr(obj: object, name: str, default: object) -> object:
     try:
         return getattr(obj, name, default)
-    except Exception:  # noqa: BLE001
+    except Exception:
         return default
 
-
+# trả về none nếu ép kiểu lỗi
 def _safe_finite_float_or_none(value: object) -> float | None:
     try:
-        result = float(value)  # type: ignore[arg-type]
-    except Exception:  # noqa: BLE001
+        result = float(value) 
+    except Exception:
         return None
     return result if math.isfinite(result) else None
 
@@ -55,6 +37,7 @@ class KalmanConfig:
     R0: float = 1.0
     R_min: float = 0.05
     R_max: float = 15.0
+    # mức độ thay đổi r nhanh hay chậm khi cảm biến thay đổi lớn
     forgetting_factor_b: float = 0.95
 
     def __post_init__(self) -> None:
@@ -146,7 +129,7 @@ class AdaptiveKalmanCycle:
     @property
     def history(self) -> list[ProcessedRecord]:
         return list(self._history)
-
+# chạy kalman cho 1 mẫu 
     def step(
         self,
         record: ProcessedRecord,
@@ -156,14 +139,15 @@ class AdaptiveKalmanCycle:
         started_at = time.perf_counter()
         try:
             result = self._step_impl(record, cycle_index, started_at)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc: 
             logger.exception("KalmanCycle step %d raised unexpectedly", cycle_index)
             result = self._error_result(record, cycle_index, started_at, exc)
 
         self._append_history(record)
         self._state.step += 1
         return result
-
+    
+# hàm xử lý chính
     def _step_impl(
         self,
         record: ProcessedRecord,
@@ -172,9 +156,11 @@ class AdaptiveKalmanCycle:
     ) -> CycleResult:
         state = self._state
         arx_predicted = self._adapter_prediction()
+        # giá trị độ ẩm ban đầu
         x_prior = arx_predicted if arx_predicted is not None else state.x_post
+        # độ không chắc chắn
         P_prior = state.P_post + self._config.Q
-
+        # độ ẩm từ cảm biến
         z = record.soil_moisture
         preprocess_status = record.preprocess_status
         if z is None or preprocess_status == "skipped":
@@ -186,12 +172,13 @@ class AdaptiveKalmanCycle:
                 x_prior,
                 P_prior,
             )
-
+        # tính d_k
         innovation = z - x_prior
         adaptive_gain = _iae_adaptive_gain(
             self._config.forgetting_factor_b,
             state.step,
         )
+        # mức nhiễu sensor mới 
         R_new = _clip(
             (1.0 - adaptive_gain) * state.R
             + adaptive_gain * (innovation * innovation - P_prior),
@@ -312,7 +299,7 @@ class AdaptiveKalmanCycle:
             return
         try:
             self._history.append(record)
-        except Exception:  # noqa: BLE001
+        except Exception: 
             pass
 
 

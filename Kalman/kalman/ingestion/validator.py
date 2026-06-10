@@ -1,5 +1,3 @@
-"""Live sensor validation for Adaptive Kalman ingestion."""
-
 from __future__ import annotations
 
 import math
@@ -7,11 +5,9 @@ from dataclasses import dataclass
 
 from .loader import RawRecord
 
-
+# đây là khoảng giá trị hợp lệ của các thông số mà esp đưa lên 
 @dataclass(frozen=True)
 class ValidationConfig:
-    """Physical bounds for live sensor payloads."""
-
     soil_moisture_min: float = 0.0
     soil_moisture_max: float = 100.0
     temperature_min: float = -10.0
@@ -27,14 +23,10 @@ class ValidationConfig:
     fan_min: float = 0.0
     fan_max: float = 1.0
 
-
 DEFAULT_CONFIG = ValidationConfig()
-
 
 @dataclass(frozen=True)
 class ValidationResult:
-    """Result of validating a live sensor sample."""
-
     is_valid: bool
     status: str
     reason: str = ""
@@ -50,17 +42,11 @@ _RANGE_CHECKS: tuple[tuple[str, str, str], ...] = (
     ("fan", "fan_min", "fan_max"),
 )
 
-
+# dùng _RANGE_CHECKS để kiểm tra xem các giá trị có nằm trong khoảng hợp lệ không, nếu không sẽ trả về lý do cụ thể
 def validate_live_record(
     record: RawRecord,
     config: ValidationConfig = DEFAULT_CONFIG,
 ) -> ValidationResult:
-    """Validate one live sensor sample.
-
-    ``soil_moisture`` is the primary measurement. If it is absent, Kalman should
-    execute a no-measurement step. Ancillary channels may be absent, but any
-    channel that is present must be finite and inside its physical bounds.
-    """
     if record.soil_moisture is None:
         return ValidationResult(
             is_valid=False,

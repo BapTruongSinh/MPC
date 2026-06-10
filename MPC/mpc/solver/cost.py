@@ -1,5 +1,3 @@
-"""FAO-56 water-balance cost functions for the scipy MPC solver."""
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -64,7 +62,7 @@ class Fao56Trajectory:
             "sensor_calibration_mode": self.sensor_calibration_mode,
         }
 
-
+# hàm tính cost chính
 def score_fao56_trajectory(
     *,
     initial_sensor_percent: float,

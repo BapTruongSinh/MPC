@@ -1,5 +1,3 @@
-"""Config schema export for MPC/AMPC clients."""
-
 from __future__ import annotations
 
 from dataclasses import asdict
